@@ -212,6 +212,21 @@ class GLinetHub(DataUpdateCoordinator[None]):
     def parallel_requests(self) -> bool:
         return bool(self._settings.get(CONF_PARALLEL_REQUESTS, DEFAULT_PARALLEL_REQUESTS))
 
+    @staticmethod
+    def _extract_mac_from_entry(entry: RegistryEntry) -> str | None:
+        if entry.domain == TRACKER_DOMAIN:
+            return entry.unique_id
+        if entry.unique_id.startswith("glinet_client_sensor/"):
+            return entry.unique_id.split("/")[1]
+        if entry.unique_id.startswith(("glinet_switch/", "glinet_select/")):
+            parts = entry.unique_id.split("/")
+            if len(parts) >= 3 and parts[2] in {
+                "internet_access",
+                "parental_control_group",
+            }:
+                return parts[1]
+        return None
+
     def _wan_status_entity_selected(self, unique_id: str) -> bool:
         prefix = f"glinet_sensor/{self.device_mac}/"
 
@@ -353,18 +368,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
                 removed = True
 
             if not removed:
-                mac = None
-                if entry.domain == TRACKER_DOMAIN:
-                    mac = entry.unique_id
-                elif entry.unique_id.startswith("glinet_client_sensor/"):
-                    mac = entry.unique_id.split("/")[1]
-                elif entry.unique_id.startswith(("glinet_switch/", "glinet_select/")):
-                    parts = entry.unique_id.split("/")
-                    if len(parts) >= 3 and parts[2] in {
-                        "internet_access",
-                        "parental_control_group",
-                    }:
-                        mac = parts[1]
+                mac = self._extract_mac_from_entry(entry)
 
                 if mac:
                     dev_reg = dr.async_get(self.hass)
