@@ -368,6 +368,7 @@ class SystemUptimeSensor(GLinetSensorBase):
 
 class ClientSensor(CoordinatorEntity[GLinetHub], SensorEntity):
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,
@@ -384,10 +385,6 @@ class ClientSensor(CoordinatorEntity[GLinetHub], SensorEntity):
             name=device.name or device.mac,
             via_device=(DOMAIN, self._hub.router_id),
         )
-        if entity_description.entity_category:
-            self._attr_entity_category = entity_description.entity_category
-        else:
-            self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def unique_id(self) -> str:

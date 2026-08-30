@@ -625,6 +625,7 @@ FEATURE_SENSOR_MAP: dict[str, str] = {
 
 @dataclass(frozen=True, kw_only=True)
 class ClientSensorEntityDescription(SensorEntityDescription):
+    entity_category: EntityCategory | None = EntityCategory.DIAGNOSTIC
     value_fn: Callable[[ClientDeviceInfo], int | str | None]
 
 
@@ -672,7 +673,6 @@ CLIENT_DIAGNOSTIC_SENSORS: tuple[ClientSensorEntityDescription, ...] = (
     ClientSensorEntityDescription(
         key="ip_address",
         name="IP address",
-        icon="mdi:ip",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda device: device.ip_address,
     ),
