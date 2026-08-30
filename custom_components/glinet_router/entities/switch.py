@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.components.switch import SwitchEntity
@@ -52,7 +51,21 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-_LOGGER = logging.getLogger(__name__)
+
+def _candidate_tunnels_for_features(hub: GLinetHub) -> list[VpnTunnel]:
+    wg_enabled = hub.feature_enabled(FEATURE_WG_CLIENT)
+    ovpn_enabled = hub.feature_enabled(FEATURE_OVPN_CLIENT)
+    if not wg_enabled and not ovpn_enabled:
+        return []
+    result: list[VpnTunnel] = []
+    for tunnel in hub.vpn_tunnels.values():
+        if tunnel.tunnel_type == VpnTunnelType.WIREGUARD and wg_enabled:
+            result.append(tunnel)
+        elif tunnel.tunnel_type == VpnTunnelType.OPENVPN and ovpn_enabled:
+            result.append(tunnel)
+        elif tunnel.tunnel_type == VpnTunnelType.UNKNOWN and (wg_enabled or ovpn_enabled):
+            result.append(tunnel)
+    return result
 
 
 async def async_setup_entry(
@@ -60,22 +73,7 @@ async def async_setup_entry(
 ) -> None:
     hub: GLinetHub = entry.runtime_data
     entities: list[SwitchEntity] = []
-    dashboard_tunnels: list[VpnTunnel] = []
-    if hub.feature_enabled(FEATURE_WG_CLIENT) or hub.feature_enabled(FEATURE_OVPN_CLIENT):
-        for tunnel in hub.vpn_tunnels.values():
-            if tunnel.tunnel_type == VpnTunnelType.WIREGUARD and hub.feature_enabled(
-                FEATURE_WG_CLIENT
-            ):
-                dashboard_tunnels.append(tunnel)
-            elif tunnel.tunnel_type == VpnTunnelType.OPENVPN and hub.feature_enabled(
-                FEATURE_OVPN_CLIENT
-            ):
-                dashboard_tunnels.append(tunnel)
-            elif tunnel.tunnel_type == VpnTunnelType.UNKNOWN:
-                if hub.feature_enabled(FEATURE_WG_CLIENT) or hub.feature_enabled(
-                    FEATURE_OVPN_CLIENT
-                ):
-                    dashboard_tunnels.append(tunnel)
+    dashboard_tunnels = _candidate_tunnels_for_features(hub)
 
     if dashboard_tunnels:
         entities.extend(VpnTunnelSwitch(hub, tunnel) for tunnel in dashboard_tunnels)
@@ -123,23 +121,6 @@ async def async_setup_entry(
         entity._tunnel_id: entity for entity in entities if isinstance(entity, VpnTunnelSwitch)
     }
 
-    def _candidate_tunnels_for_features() -> list[VpnTunnel]:
-        result: list[VpnTunnel] = []
-        for tunnel in hub.vpn_tunnels.values():
-            if tunnel.tunnel_type == VpnTunnelType.WIREGUARD and hub.feature_enabled(
-                FEATURE_WG_CLIENT
-            ):
-                result.append(tunnel)
-            elif tunnel.tunnel_type == VpnTunnelType.OPENVPN and hub.feature_enabled(
-                FEATURE_OVPN_CLIENT
-            ):
-                result.append(tunnel)
-            elif tunnel.tunnel_type == VpnTunnelType.UNKNOWN and (
-                hub.feature_enabled(FEATURE_WG_CLIENT) or hub.feature_enabled(FEATURE_OVPN_CLIENT)
-            ):
-                result.append(tunnel)
-        return result
-
     @callback
     def _reconcile_vpn_tunnels(current_ids: set[int] | None = None) -> None:
         hass = hub.hass
@@ -149,13 +130,13 @@ async def async_setup_entry(
         current_ids: set[int] | None = None,
     ) -> None:
         if current_ids is None:
-            current_ids = {t.tunnel_id for t in _candidate_tunnels_for_features()}
+            current_ids = {t.tunnel_id for t in _candidate_tunnels_for_features(hub)}
 
         existing_ids = set(vpn_tunnel_switches.keys())
 
         new_tunnels = [
             tunnel
-            for tunnel in _candidate_tunnels_for_features()
+            for tunnel in _candidate_tunnels_for_features(hub)
             if tunnel.tunnel_id not in existing_ids and tunnel.tunnel_id in current_ids
         ]
         if new_tunnels:
