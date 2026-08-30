@@ -10,7 +10,6 @@ def compute_mac_offset(mac: str, delta: int, sep: str = ":") -> str:
 
 
 def pick_first(data: dict[str, Any], aliases: tuple[str, ...]) -> Any:
-    """Return the first non-None value found under any of ``aliases`` in ``data``."""
     for alias in aliases:
         value = data.get(alias)
         if value is not None:

@@ -119,8 +119,6 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class _ServiceSpec:
-    """Declarative description of a GL.iNet service registration."""
-
     name: str
     handler: Callable[[ServiceCall], Any]
     schema: vol.Schema
@@ -910,20 +908,14 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
 
     _apply_specs(hass, _SMS_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_SMS))
-    _apply_specs(
-        hass, _REPEATER_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_REPEATER)
-    )
-    _apply_specs(
-        hass, _FIREWALL_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_FIREWALL)
-    )
+    _apply_specs(hass, _REPEATER_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_REPEATER))
+    _apply_specs(hass, _FIREWALL_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_FIREWALL))
     _apply_specs(hass, _KMWAN_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_KMWAN))
     _apply_specs(hass, _MWAN3_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_MWAN3))
     _apply_specs(
         hass, _MCU_BATTERY_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_MCU_BATTERY)
     )
-    _apply_specs(
-        hass, _MCU_OLED_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_MCU_OLED)
-    )
+    _apply_specs(hass, _MCU_OLED_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_MCU_OLED))
     _apply_specs(
         hass,
         _PARENTAL_CONTROL_SPECS,
