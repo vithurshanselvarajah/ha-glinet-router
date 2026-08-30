@@ -36,22 +36,6 @@ def get_first_value(data: Any, keys: tuple[str, ...], nested: tuple[str, ...] = 
     return None
 
 
-def get_first_bool(data: dict[str, Any], keys: tuple[str, ...]) -> bool | None:
-    for key in keys:
-        value = data.get(key)
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, int):
-            return value != 0
-        if isinstance(value, str):
-            lowered = value.lower()
-            if lowered in {"1", "true", "on", "enabled", "enable"}:
-                return True
-            if lowered in {"0", "false", "off", "disabled", "disable"}:
-                return False
-    return None
-
-
 def _candidate_dicts(data: Any, nested: tuple[str, ...]) -> list[dict[str, Any]]:
     if not isinstance(data, dict):
         return []

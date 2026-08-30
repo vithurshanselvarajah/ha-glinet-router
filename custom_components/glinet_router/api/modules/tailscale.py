@@ -32,7 +32,7 @@ class TailscaleModule(BaseModule):
             status = await self.get_status()
         except APIClientError:
             return False
-        if status != []:
+        if status:
             return True
         try:
             config = await self.get_config()
@@ -53,7 +53,7 @@ class TailscaleModule(BaseModule):
         if depth > 10:
             raise ConnectionError("Tailscale attempted to connect 10 times with no success")
         response = await self.get_status()
-        if isinstance(response, list) and response == []:
+        if not response:
             await self.set_config({"enabled": True})
             if depth > 0:
                 await asyncio.sleep(0.3)
@@ -81,7 +81,7 @@ class TailscaleModule(BaseModule):
         if depth > 10:
             raise ConnectionError("Tailscale attempted to disconnect 10 times with no success")
         response = await self.get_status()
-        if isinstance(response, list) and response == []:
+        if not response:
             return True
         status = dict(response).get("status", 0)
         if status in {
