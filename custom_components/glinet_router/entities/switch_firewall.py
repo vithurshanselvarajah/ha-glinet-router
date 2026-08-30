@@ -34,8 +34,10 @@ class GLinetDMZSwitch(GLinetSwitchBase):
         )
 
     async def async_turn_off(self, **_: Any) -> None:
-        await self._hub.set_dmz_config(False)
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_dmz_config(False),
+            "Unable to disable firewall DMZ",
+        )
 
 
 class GLinetWANAccessSwitch(GLinetSwitchBase):
@@ -57,14 +59,19 @@ class GLinetWANAccessSwitch(GLinetSwitchBase):
     def is_on(self) -> bool | None:
         return self._hub._wan_access.get(f"enable_{self._access_type}", False)
 
-    async def async_turn_on(self, **_: Any) -> None:
+    async def _set_wan_access(self, enabled: bool) -> None:
         config = self._hub._wan_access.copy()
-        config[f"enable_{self._access_type}"] = True
+        config[f"enable_{self._access_type}"] = enabled
         await self._hub.set_wan_access(config)
-        await self._hub.async_request_refresh()
+
+    async def async_turn_on(self, **_: Any) -> None:
+        await self._safe_set(
+            lambda: self._set_wan_access(True),
+            f"Unable to enable WAN {self._access_type} access",
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        config = self._hub._wan_access.copy()
-        config[f"enable_{self._access_type}"] = False
-        await self._hub.set_wan_access(config)
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._set_wan_access(False),
+            f"Unable to disable WAN {self._access_type} access",
+        )

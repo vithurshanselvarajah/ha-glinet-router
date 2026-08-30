@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from .switch_base import GLinetSwitchBase
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class RepeaterAutoSwitchSwitch(GLinetSwitchBase):
@@ -24,20 +21,18 @@ class RepeaterAutoSwitchSwitch(GLinetSwitchBase):
         return self._hub.repeater_auto_switch
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.set_repeater_auto_switch(True)
-        except OSError:
-            _LOGGER.exception("Unable to enable repeater auto-switch")
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            self._hub.set_repeater_auto_switch,
+            "Unable to enable repeater auto-switch",
+            True,
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.set_repeater_auto_switch(False)
-        except OSError:
-            _LOGGER.exception("Unable to disable repeater auto-switch")
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            self._hub.set_repeater_auto_switch,
+            "Unable to disable repeater auto-switch",
+            False,
+        )
 
 
 class RepeaterBareModeSwitch(GLinetSwitchBase):
@@ -53,20 +48,18 @@ class RepeaterBareModeSwitch(GLinetSwitchBase):
         return self._hub.repeater_bare_mode
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.set_repeater_bare_mode(True)
-        except OSError:
-            _LOGGER.exception("Unable to enable repeater bare mode")
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            self._hub.set_repeater_bare_mode,
+            "Unable to enable repeater bare mode",
+            True,
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.set_repeater_bare_mode(False)
-        except OSError:
-            _LOGGER.exception("Unable to disable repeater bare mode")
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            self._hub.set_repeater_bare_mode,
+            "Unable to disable repeater bare mode",
+            False,
+        )
 
 
 class RepeaterSmartReconnectSwitch(GLinetSwitchBase):
@@ -82,20 +75,18 @@ class RepeaterSmartReconnectSwitch(GLinetSwitchBase):
         return self._hub.repeater_smart_reconnect
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.set_repeater_smart_reconnect(True)
-        except OSError:
-            _LOGGER.exception("Unable to enable repeater smart reconnect")
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            self._hub.set_repeater_smart_reconnect,
+            "Unable to enable repeater smart reconnect",
+            True,
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.set_repeater_smart_reconnect(False)
-        except OSError:
-            _LOGGER.exception("Unable to disable repeater smart reconnect")
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            self._hub.set_repeater_smart_reconnect,
+            "Unable to disable repeater smart reconnect",
+            False,
+        )
 
 
 class AdGuardEnabledSwitch(GLinetSwitchBase):

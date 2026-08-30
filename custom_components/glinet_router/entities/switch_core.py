@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from ..hub import GLinetHub
 from ..models import WifiInterface
 from .switch_base import GLinetSwitchBase
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class WifiApSwitch(GLinetSwitchBase):
@@ -40,20 +37,20 @@ class WifiApSwitch(GLinetSwitchBase):
         }
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.set_wifi_interface_enabled(self._iface_name, True)
-        except OSError:
-            _LOGGER.exception("Unable to enable WiFi interface %s", self._iface_name)
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            self._hub.set_wifi_interface_enabled,
+            f"Unable to enable WiFi interface {self._iface_name}",
+            self._iface_name,
+            True,
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.set_wifi_interface_enabled(self._iface_name, False)
-        except OSError:
-            _LOGGER.exception("Unable to disable WiFi interface %s", self._iface_name)
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            self._hub.set_wifi_interface_enabled,
+            f"Unable to disable WiFi interface {self._iface_name}",
+            self._iface_name,
+            False,
+        )
 
 
 class LedSwitch(GLinetSwitchBase):

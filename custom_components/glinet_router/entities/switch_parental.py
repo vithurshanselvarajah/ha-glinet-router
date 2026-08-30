@@ -27,12 +27,16 @@ class GLinetParentalControlGlobalSwitch(GLinetSwitchBase):
         return self._hub.parental_control_enabled
 
     async def async_turn_on(self, **_: Any) -> None:
-        await self._hub.set_parental_control_enabled(True)
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_parental_control_enabled(True),
+            "Unable to enable parental control",
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        await self._hub.set_parental_control_enabled(False)
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_parental_control_enabled(False),
+            "Unable to disable parental control",
+        )
 
 
 class GLinetParentalControlGroupSwitch(GLinetSwitchBase):
@@ -56,12 +60,16 @@ class GLinetParentalControlGroupSwitch(GLinetSwitchBase):
         return self._group.enabled
 
     async def async_turn_on(self, **_: Any) -> None:
-        await self._hub.set_group_enabled(self._group.id, True)
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_group_enabled(self._group.id, True),
+            f"Unable to enable parental control group {self._group.id}",
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        await self._hub.set_group_enabled(self._group.id, False)
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_group_enabled(self._group.id, False),
+            f"Unable to disable parental control group {self._group.id}",
+        )
 
 
 class GLinetClientInternetAccessSwitch(GLinetSwitchBase):
@@ -93,9 +101,13 @@ class GLinetClientInternetAccessSwitch(GLinetSwitchBase):
         return {"access_control_mode": self._hub.access_control_mode}
 
     async def async_turn_on(self, **_: Any) -> None:
-        await self._hub.set_single_device_block(self._device.mac, False)
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_single_device_block(self._device.mac, False),
+            f"Unable to enable internet access for {self._device.mac}",
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        await self._hub.set_single_device_block(self._device.mac, True)
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_single_device_block(self._device.mac, True),
+            f"Unable to disable internet access for {self._device.mac}",
+        )

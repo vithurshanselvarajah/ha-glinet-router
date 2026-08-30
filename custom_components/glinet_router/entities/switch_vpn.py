@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -35,20 +34,10 @@ class TailscaleSwitch(GLinetSwitchBase):
         return self._hub.tailscale_connected
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.connect_tailscale()
-        except OSError:
-            _LOGGER.exception("Unable to enable tailscale connection")
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(self._hub.connect_tailscale, "Unable to enable tailscale connection")
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.disconnect_tailscale()
-        except OSError:
-            _LOGGER.exception("Unable to stop tailscale connection")
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(self._hub.disconnect_tailscale, "Unable to stop tailscale connection")
 
 
 class WireGuardSwitch(GLinetSwitchBase):
@@ -73,35 +62,30 @@ class WireGuardSwitch(GLinetSwitchBase):
             self._client = current
         return self._client.connected
 
-    async def async_turn_on(self, **_: Any) -> None:
-        try:
-            if (
-                self._client.tunnel_id is None
-                and self._hub.connected_vpn_clients is not None
-                and self._client not in self._hub.connected_vpn_clients
-            ):
-                for client in self._hub.connected_vpn_clients:
-                    await self._hub.stop_vpn_client(client.group_id, client.peer_id)
+    async def _start(self) -> None:
+        if (
+            self._client.tunnel_id is None
+            and self._hub.connected_vpn_clients is not None
+            and self._client not in self._hub.connected_vpn_clients
+        ):
+            for client in self._hub.connected_vpn_clients:
+                await self._hub.stop_vpn_client(client.group_id, client.peer_id)
+        await self._hub.start_vpn_client(
+            self._client.group_id,
+            self._client.peer_id,
+        )
 
-            await self._hub.start_vpn_client(
-                self._client.group_id,
-                self._client.peer_id,
-            )
-        except OSError:
-            _LOGGER.exception("Unable to enable WireGuard client")
-            return
-        await self._hub.async_request_refresh()
+    async def async_turn_on(self, **_: Any) -> None:
+        await self._safe_set(self._start, "Unable to enable WireGuard client")
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.stop_vpn_client(
+        await self._safe_set(
+            lambda: self._hub.stop_vpn_client(
                 self._client.group_id,
                 self._client.peer_id,
-            )
-        except OSError:
-            _LOGGER.exception("Unable to stop WireGuard client")
-            return
-        await self._hub.async_request_refresh()
+            ),
+            "Unable to stop WireGuard client",
+        )
 
 
 class WireGuardServerSwitch(GLinetSwitchBase):
@@ -121,22 +105,12 @@ class WireGuardServerSwitch(GLinetSwitchBase):
         return status.enabled if status else None
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.start_wg_server()
-        except OSError:
-            _LOGGER.exception("Unable to start WireGuard server")
-            return
-        await asyncio.sleep(10)
-        await self._hub.async_request_refresh()
+        await self._safe_set_with_delay(
+            self._hub.start_wg_server, "Unable to start WireGuard server"
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.stop_wg_server()
-        except OSError:
-            _LOGGER.exception("Unable to stop WireGuard server")
-            return
-        await asyncio.sleep(10)
-        await self._hub.async_request_refresh()
+        await self._safe_set_with_delay(self._hub.stop_wg_server, "Unable to stop WireGuard server")
 
 
 class OpenVpnClientSwitch(GLinetSwitchBase):
@@ -167,27 +141,21 @@ class OpenVpnClientSwitch(GLinetSwitchBase):
         return self._client.connected
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.start_ovpn_client(
+        await self._safe_set_with_delay(
+            lambda: self._hub.start_ovpn_client(
                 self._client.group_id,
                 self._client.client_id,
-            )
-        except OSError:
-            _LOGGER.exception("Unable to enable OpenVPN client")
-            return
-        await asyncio.sleep(10)
-        await self._hub.async_request_refresh()
+            ),
+            "Unable to enable OpenVPN client",
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.stop_ovpn_client(
+        await self._safe_set_with_delay(
+            lambda: self._hub.stop_ovpn_client(
                 self._client.group_id, self._client.client_id, self._client.tunnel_id
-            )
-        except OSError:
-            _LOGGER.exception("Unable to stop OpenVPN client")
-            return
-        await asyncio.sleep(10)
-        await self._hub.async_request_refresh()
+            ),
+            "Unable to stop OpenVPN client",
+        )
 
 
 class VpnTunnelSwitch(GLinetSwitchBase):
@@ -243,20 +211,16 @@ class VpnTunnelSwitch(GLinetSwitchBase):
         }
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.set_vpn_tunnel(self._tunnel_id, True)
-        except OSError:
-            _LOGGER.exception("Unable to enable VPN tunnel %s", self._tunnel_id)
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_vpn_tunnel(self._tunnel_id, True),
+            f"Unable to enable VPN tunnel {self._tunnel_id}",
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.set_vpn_tunnel(self._tunnel_id, False)
-        except OSError:
-            _LOGGER.exception("Unable to disable VPN tunnel %s", self._tunnel_id)
-            return
-        await self._hub.async_request_refresh()
+        await self._safe_set(
+            lambda: self._hub.set_vpn_tunnel(self._tunnel_id, False),
+            f"Unable to disable VPN tunnel {self._tunnel_id}",
+        )
 
 
 class OpenVpnServerSwitch(GLinetSwitchBase):
@@ -276,22 +240,12 @@ class OpenVpnServerSwitch(GLinetSwitchBase):
         return status.enabled if status else None
 
     async def async_turn_on(self, **_: Any) -> None:
-        try:
-            await self._hub.start_ovpn_server()
-        except OSError:
-            _LOGGER.exception("Unable to start OpenVPN server")
-            return
-        await asyncio.sleep(10)
-        await self._hub.async_request_refresh()
+        await self._safe_set_with_delay(
+            self._hub.start_ovpn_server, "Unable to start OpenVPN server"
+        )
 
     async def async_turn_off(self, **_: Any) -> None:
-        try:
-            await self._hub.stop_ovpn_server()
-        except OSError:
-            _LOGGER.exception("Unable to stop OpenVPN server")
-            return
-        await asyncio.sleep(10)
-        await self._hub.async_request_refresh()
+        await self._safe_set_with_delay(self._hub.stop_ovpn_server, "Unable to stop OpenVPN server")
 
 
 class ZeroTierSwitch(GLinetSwitchBase):
