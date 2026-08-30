@@ -9,6 +9,15 @@ def compute_mac_offset(mac: str, delta: int, sep: str = ":") -> str:
     return sep.join(new_hex[index : index + 2] for index in range(0, 12, 2)).lower()
 
 
+def pick_first(data: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+    """Return the first non-None value found under any of ``aliases`` in ``data``."""
+    for alias in aliases:
+        value = data.get(alias)
+        if value is not None:
+            return value
+    return None
+
+
 def get_first_int(data: Any, keys: tuple[str, ...], nested: tuple[str, ...] = ()) -> int | None:
     for source in _candidate_dicts(data, nested):
         for key in keys:

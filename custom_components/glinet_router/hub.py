@@ -91,7 +91,7 @@ from .models import (
     WireGuardServerStatus,
     ZeroTierStatus,
 )
-from .utils import compute_mac_offset, get_first_int
+from .utils import compute_mac_offset, get_first_int, pick_first
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -747,20 +747,8 @@ class GLinetHub(DataUpdateCoordinator[None]):
             "keep_config": keep_config,
             "keep_package": keep_package,
         }
-        for key, aliases in {
-            "url": ("url", "download_url", "downloadUrl", "firmware_url"),
-            "id": ("id", "upgrade_id", "version_id"),
-            "size": ("size", "download_size"),
-            "sha256": ("sha256", "sha-256"),
-        }.items():
-            value = next(
-                (
-                    self._upgrade_info.get(alias)
-                    for alias in aliases
-                    if self._upgrade_info.get(alias) is not None
-                ),
-                None,
-            )
+        for key, aliases in _FIRMWARE_INFO_ALIASES.items():
+            value = pick_first(self._upgrade_info, aliases)
             if value is not None:
                 params[key] = value
         if "url" not in params or "id" not in params:
@@ -2528,3 +2516,11 @@ class EntityCleanupRule:
     description: str
     matches: Callable[[RegistryEntry], bool]
     should_keep: Callable[[RegistryEntry], bool]
+
+
+_FIRMWARE_INFO_ALIASES: dict[str, tuple[str, ...]] = {
+    "url": ("url", "download_url", "downloadUrl", "firmware_url"),
+    "id": ("id", "upgrade_id", "version_id"),
+    "size": ("size", "download_size"),
+    "sha256": ("sha256", "sha-256"),
+}
