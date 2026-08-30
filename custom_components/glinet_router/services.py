@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -109,9 +110,22 @@ from .const import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse
 
     from .hub import GLinetHub
+
+
+@dataclass(frozen=True)
+class _ServiceSpec:
+    """Declarative description of a GL.iNet service registration."""
+
+    name: str
+    handler: Callable[[ServiceCall], Any]
+    schema: vol.Schema
+    supports_response: SupportsResponse | None = None
+    feature: str | None = None
 
 
 def _enabled_features_from_entry(entry: Any) -> set[str]:
@@ -132,32 +146,33 @@ def _ensure_feature_enabled(hub: GLinetHub, feature: str, service_name: str) -> 
         raise ValueError(f"{service_name} is not enabled for router {hub.device_mac}")
 
 
+def _feature_enabled_for_any_entry(entries: list[Any], feature: str) -> bool:
+    return any(feature in _enabled_features_from_entry(entry) for entry in entries)
+
+
+def _apply_specs(
+    hass: HomeAssistant,
+    specs: tuple[_ServiceSpec, ...],
+    enabled: bool,
+) -> None:
+    for spec in specs:
+        if enabled:
+            kwargs: dict[str, Any] = {"schema": spec.schema}
+            if spec.supports_response is not None:
+                kwargs["supports_response"] = spec.supports_response
+            hass.services.async_register(DOMAIN, spec.name, spec.handler, **kwargs)
+        elif hass.services.has_service(DOMAIN, spec.name):
+            hass.services.async_remove(DOMAIN, spec.name)
+
+
+def _params_without_mac(call_data: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in call_data.items() if k != CONF_MAC}
+
+
 async def async_register_services(hass: HomeAssistant) -> None:
     entries = hass.config_entries.async_entries(DOMAIN)
     if not entries:
         return
-
-    firewall_enabled = any(
-        FEATURE_FIREWALL in _enabled_features_from_entry(entry) for entry in entries
-    )
-    mwan3_enabled = any(FEATURE_MWAN3 in _enabled_features_from_entry(entry) for entry in entries)
-    kmwan_enabled = any(FEATURE_KMWAN in _enabled_features_from_entry(entry) for entry in entries)
-    mcu_battery_enabled = any(
-        FEATURE_MCU_BATTERY in _enabled_features_from_entry(entry) for entry in entries
-    )
-    mcu_oled_enabled = any(
-        FEATURE_MCU_OLED in _enabled_features_from_entry(entry) for entry in entries
-    )
-    sms_enabled = any(FEATURE_SMS in _enabled_features_from_entry(entry) for entry in entries)
-    repeater_enabled = any(
-        FEATURE_REPEATER in _enabled_features_from_entry(entry) for entry in entries
-    )
-    parental_control_enabled = any(
-        FEATURE_PARENTAL_CONTROL in _enabled_features_from_entry(entry) for entry in entries
-    )
-    playground_enabled = any(
-        FEATURE_PLAYGROUND in _enabled_features_from_entry(entry) for entry in entries
-    )
 
     async def async_set_fan_temperature(call: ServiceCall) -> None:
         hub = _get_hub(hass, call.data)
@@ -262,11 +277,68 @@ async def async_register_services(hass: HomeAssistant) -> None:
             message_id=call.data.get(ATTR_MESSAGE_ID),
         )
 
+    async def async_scan_wifi(call: ServiceCall) -> ServiceResponse:
+        hub = _get_hub(hass, call.data)
+        _ensure_feature_enabled(hub, FEATURE_REPEATER, "scan_wifi")
+        networks = await hub.scan_wifi_networks(
+            all_band=call.data.get(ATTR_ALL_BAND, False),
+            dfs=call.data.get(ATTR_DFS, False),
+            refresh=call.data.get(ATTR_REFRESH, False),
+        )
+        return {
+            "networks": [
+                {
+                    "ssid": network.ssid,
+                    "bssid": network.bssid,
+                    "signal": network.signal,
+                    "band": network.band,
+                    "channel": network.channel,
+                    "encryption": network.encryption_type,
+                    "saved": network.saved,
+                }
+                for network in networks
+            ]
+        }
+
+    async def async_connect_wifi(call: ServiceCall) -> None:
+        hub = _get_hub(hass, call.data)
+        _ensure_feature_enabled(hub, FEATURE_REPEATER, "connect_wifi")
+        await hub.connect_to_wifi(
+            ssid=call.data[ATTR_SSID],
+            password=call.data.get(ATTR_PASSWORD),
+            remember=call.data.get(ATTR_REMEMBER, True),
+            bssid=call.data.get(ATTR_BSSID),
+        )
+
+    async def async_disconnect_wifi(call: ServiceCall) -> None:
+        hub = _get_hub(hass, call.data)
+        _ensure_feature_enabled(hub, FEATURE_REPEATER, "disconnect_wifi")
+        await hub.disconnect_wifi()
+
+    async def async_get_saved_networks(call: ServiceCall) -> ServiceResponse:
+        hub = _get_hub(hass, call.data)
+        _ensure_feature_enabled(hub, FEATURE_REPEATER, "get_saved_networks")
+        networks = await hub.get_saved_wifi_networks()
+        return {
+            "networks": [
+                {
+                    "ssid": network.get("ssid"),
+                    "bssid": network.get("bssid"),
+                    "protocol": network.get("protocol", "dhcp"),
+                }
+                for network in networks
+            ]
+        }
+
+    async def async_remove_saved_network(call: ServiceCall) -> None:
+        hub = _get_hub(hass, call.data)
+        _ensure_feature_enabled(hub, FEATURE_REPEATER, "remove_saved_network")
+        await hub.remove_saved_wifi_network(call.data[ATTR_SSID])
+
     async def async_add_firewall_rule(call: ServiceCall) -> None:
         hub = _get_hub(hass, call.data)
         _ensure_feature_enabled(hub, FEATURE_FIREWALL, "add_firewall_rule")
-        params = {k: v for k, v in call.data.items() if k != CONF_MAC}
-        await hub.add_firewall_rule(params)
+        await hub.add_firewall_rule(_params_without_mac(call.data))
 
     async def async_remove_firewall_rule(call: ServiceCall) -> None:
         hub = _get_hub(hass, call.data)
@@ -281,8 +353,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def async_add_port_forward(call: ServiceCall) -> None:
         hub = _get_hub(hass, call.data)
         _ensure_feature_enabled(hub, FEATURE_FIREWALL, "add_port_forward")
-        params = {k: v for k, v in call.data.items() if k != CONF_MAC}
-        await hub.add_port_forward(params)
+        await hub.add_port_forward(_params_without_mac(call.data))
 
     async def async_remove_port_forward(call: ServiceCall) -> None:
         hub = _get_hub(hass, call.data)
@@ -408,36 +479,35 @@ async def async_register_services(hass: HomeAssistant) -> None:
             call.data[ATTR_ENABLED],
         )
 
-    if sms_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _SMS_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_SEND_SMS,
             async_send_sms,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Required(ATTR_RECIPIENT): cv.string,
                     vol.Required(ATTR_TEXT): cv.string,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_SMS,
+        ),
+        _ServiceSpec(
             SERVICE_REFRESH_SMS,
             async_refresh_sms,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            feature=FEATURE_SMS,
+        ),
+        _ServiceSpec(
             SERVICE_GET_SMS,
             async_get_sms,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_SMS,
+        ),
+        _ServiceSpec(
             SERVICE_REMOVE_SMS,
             async_remove_sms,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_SCOPE, default=10): vol.In(
@@ -446,76 +516,15 @@ async def async_register_services(hass: HomeAssistant) -> None:
                     vol.Optional(ATTR_MESSAGE_ID): cv.string,
                 }
             ),
-        )
-    else:
-        for service in [SERVICE_SEND_SMS, SERVICE_REFRESH_SMS, SERVICE_GET_SMS, SERVICE_REMOVE_SMS]:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+            feature=FEATURE_SMS,
+        ),
+    )
 
-    async def async_scan_wifi(call: ServiceCall) -> ServiceResponse:
-        hub = _get_hub(hass, call.data)
-        _ensure_feature_enabled(hub, FEATURE_REPEATER, "scan_wifi")
-        networks = await hub.scan_wifi_networks(
-            all_band=call.data.get(ATTR_ALL_BAND, False),
-            dfs=call.data.get(ATTR_DFS, False),
-            refresh=call.data.get(ATTR_REFRESH, False),
-        )
-        return {
-            "networks": [
-                {
-                    "ssid": network.ssid,
-                    "bssid": network.bssid,
-                    "signal": network.signal,
-                    "band": network.band,
-                    "channel": network.channel,
-                    "encryption": network.encryption_type,
-                    "saved": network.saved,
-                }
-                for network in networks
-            ]
-        }
-
-    async def async_connect_wifi(call: ServiceCall) -> None:
-        hub = _get_hub(hass, call.data)
-        _ensure_feature_enabled(hub, FEATURE_REPEATER, "connect_wifi")
-        await hub.connect_to_wifi(
-            ssid=call.data[ATTR_SSID],
-            password=call.data.get(ATTR_PASSWORD),
-            remember=call.data.get(ATTR_REMEMBER, True),
-            bssid=call.data.get(ATTR_BSSID),
-        )
-
-    async def async_disconnect_wifi(call: ServiceCall) -> None:
-        hub = _get_hub(hass, call.data)
-        _ensure_feature_enabled(hub, FEATURE_REPEATER, "disconnect_wifi")
-        await hub.disconnect_wifi()
-
-    async def async_get_saved_networks(call: ServiceCall) -> ServiceResponse:
-        hub = _get_hub(hass, call.data)
-        _ensure_feature_enabled(hub, FEATURE_REPEATER, "get_saved_networks")
-        networks = await hub.get_saved_wifi_networks()
-        return {
-            "networks": [
-                {
-                    "ssid": network.get("ssid"),
-                    "bssid": network.get("bssid"),
-                    "protocol": network.get("protocol", "dhcp"),
-                }
-                for network in networks
-            ]
-        }
-
-    async def async_remove_saved_network(call: ServiceCall) -> None:
-        hub = _get_hub(hass, call.data)
-        _ensure_feature_enabled(hub, FEATURE_REPEATER, "remove_saved_network")
-        await hub.remove_saved_wifi_network(call.data[ATTR_SSID])
-
-    if repeater_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _REPEATER_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_SCAN_WIFI,
             async_scan_wifi,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Optional(ATTR_ALL_BAND, default=False): cv.boolean,
@@ -524,12 +533,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
                 }
             ),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_REPEATER,
+        ),
+        _ServiceSpec(
             SERVICE_CONNECT_WIFI,
             async_connect_wifi,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_SSID): cv.string,
@@ -538,48 +547,39 @@ async def async_register_services(hass: HomeAssistant) -> None:
                     vol.Optional(ATTR_BSSID): cv.string,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_REPEATER,
+        ),
+        _ServiceSpec(
             SERVICE_DISCONNECT_WIFI,
             async_disconnect_wifi,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            feature=FEATURE_REPEATER,
+        ),
+        _ServiceSpec(
             SERVICE_GET_SAVED_NETWORKS,
             async_get_saved_networks,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_REPEATER,
+        ),
+        _ServiceSpec(
             SERVICE_REMOVE_SAVED_NETWORK,
             async_remove_saved_network,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_SSID): cv.string,
                 }
             ),
-        )
-    else:
-        for service in [
-            SERVICE_SCAN_WIFI,
-            SERVICE_CONNECT_WIFI,
-            SERVICE_DISCONNECT_WIFI,
-            SERVICE_GET_SAVED_NETWORKS,
-            SERVICE_REMOVE_SAVED_NETWORK,
-        ]:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+            feature=FEATURE_REPEATER,
+        ),
+    )
 
-    if firewall_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _FIREWALL_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_ADD_FIREWALL_RULE,
             async_add_firewall_rule,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_NAME): cv.string,
@@ -595,30 +595,30 @@ async def async_register_services(hass: HomeAssistant) -> None:
                     vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_FIREWALL,
+        ),
+        _ServiceSpec(
             SERVICE_GET_FIREWALL_RULES,
             async_get_firewall_rules,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_FIREWALL,
+        ),
+        _ServiceSpec(
             SERVICE_REMOVE_FIREWALL_RULE,
             async_remove_firewall_rule,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_RULE_ID): cv.string,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_FIREWALL,
+        ),
+        _ServiceSpec(
             SERVICE_ADD_PORT_FORWARD,
             async_add_port_forward,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_NAME): cv.string,
@@ -631,162 +631,135 @@ async def async_register_services(hass: HomeAssistant) -> None:
                     vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_FIREWALL,
+        ),
+        _ServiceSpec(
             SERVICE_REMOVE_PORT_FORWARD,
             async_remove_port_forward,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Optional(ATTR_RULE_ID): cv.string,
                     vol.Optional(ATTR_REMOVE_ALL, default=False): cv.boolean,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_FIREWALL,
+        ),
+        _ServiceSpec(
             SERVICE_SET_DMZ,
             async_set_dmz,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_ENABLED): cv.boolean,
                     vol.Optional(ATTR_DEST_IP): cv.string,
                 }
             ),
-        )
-    else:
-        for service in [
-            SERVICE_ADD_FIREWALL_RULE,
-            SERVICE_GET_FIREWALL_RULES,
-            SERVICE_REMOVE_FIREWALL_RULE,
-            SERVICE_ADD_PORT_FORWARD,
-            SERVICE_REMOVE_PORT_FORWARD,
-            SERVICE_SET_DMZ,
-        ]:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+            feature=FEATURE_FIREWALL,
+        ),
+    )
 
-    if kmwan_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _KMWAN_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_KMWAN_GET_CONFIG,
             async_kmwan_get_config,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_KMWAN,
+        ),
+        _ServiceSpec(
             SERVICE_KMWAN_GET_STATUS,
             async_kmwan_get_status,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_KMWAN,
+        ),
+        _ServiceSpec(
             SERVICE_KMWAN_SET_CONFIG,
             async_kmwan_set_config,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_CONFIG): object,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_KMWAN,
+        ),
+        _ServiceSpec(
             SERVICE_KMWAN_SET_INTERFACE,
             async_kmwan_set_interface,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_INTERFACE): object,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_KMWAN,
+        ),
+        _ServiceSpec(
             SERVICE_KMWAN_SET_SENSITIVITY,
             async_kmwan_set_sensitivity,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_SENSITIVITY): object,
                 }
             ),
-        )
-    else:
-        for service in [
-            SERVICE_KMWAN_GET_CONFIG,
-            SERVICE_KMWAN_GET_STATUS,
-            SERVICE_KMWAN_SET_CONFIG,
-            SERVICE_KMWAN_SET_INTERFACE,
-            SERVICE_KMWAN_SET_SENSITIVITY,
-        ]:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+            feature=FEATURE_KMWAN,
+        ),
+    )
 
-    if mwan3_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _MWAN3_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_MWAN3_GET_CONFIG,
             async_mwan3_get_config,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_MWAN3,
+        ),
+        _ServiceSpec(
             SERVICE_MWAN3_GET_STATUS,
             async_mwan3_get_status,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_MWAN3,
+        ),
+        _ServiceSpec(
             SERVICE_MWAN3_SET_CONFIG,
             async_mwan3_set_config,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_CONFIG): object,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_MWAN3,
+        ),
+        _ServiceSpec(
             SERVICE_MWAN3_SET_INTERFACE,
             async_mwan3_set_interface,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_INTERFACE): object,
                 }
             ),
-        )
-    else:
-        for service in [
-            SERVICE_MWAN3_GET_CONFIG,
-            SERVICE_MWAN3_GET_STATUS,
-            SERVICE_MWAN3_SET_CONFIG,
-            SERVICE_MWAN3_SET_INTERFACE,
-        ]:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+            feature=FEATURE_MWAN3,
+        ),
+    )
 
-    if mcu_battery_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _MCU_BATTERY_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_GET_MCU_BATTERY_CONFIG,
             async_get_mcu_battery_config,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_MCU_BATTERY,
+        ),
+        _ServiceSpec(
             SERVICE_SET_MCU_BATTERY_CONFIG,
             async_set_mcu_battery_config,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_CAPACITY_ENABLED): cv.boolean,
@@ -799,28 +772,22 @@ async def async_register_services(hass: HomeAssistant) -> None:
                     vol.Required(ATTR_TEMP_LOW): vol.Coerce(int),
                 }
             ),
-        )
-    else:
-        for service in [
-            SERVICE_GET_MCU_BATTERY_CONFIG,
-            SERVICE_SET_MCU_BATTERY_CONFIG,
-        ]:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+            feature=FEATURE_MCU_BATTERY,
+        ),
+    )
 
-    if mcu_oled_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _MCU_OLED_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_GET_MCU_OLED_CONFIG,
             async_get_mcu_oled_config,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
             supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_MCU_OLED,
+        ),
+        _ServiceSpec(
             SERVICE_SET_MCU_OLED_CONFIG,
             async_set_mcu_oled_config,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Optional(ATTR_MAIN): cv.boolean,
@@ -833,21 +800,15 @@ async def async_register_services(hass: HomeAssistant) -> None:
                     vol.Optional(ATTR_CONTENT): cv.string,
                 }
             ),
-        )
-    else:
-        for service in [
-            SERVICE_GET_MCU_OLED_CONFIG,
-            SERVICE_SET_MCU_OLED_CONFIG,
-        ]:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+            feature=FEATURE_MCU_OLED,
+        ),
+    )
 
-    if parental_control_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _PARENTAL_CONTROL_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_PARENTAL_CONTROL_SET_TEMPORARY_OVERRIDE,
             async_parental_control_set_temporary_override,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_GROUP_ID): cv.string,
@@ -856,77 +817,67 @@ async def async_register_services(hass: HomeAssistant) -> None:
                     vol.Optional(ATTR_DURATION, default=""): cv.string,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_PARENTAL_CONTROL,
+        ),
+        _ServiceSpec(
             SERVICE_PARENTAL_CONTROL_SET_FILTERING_MODE,
             async_parental_control_set_filtering_mode,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_MODE): vol.Coerce(int),
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_PARENTAL_CONTROL,
+        ),
+        _ServiceSpec(
             SERVICE_PARENTAL_CONTROL_UPDATE_SIGNATURES,
             async_parental_control_update_signatures,
-            schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+            feature=FEATURE_PARENTAL_CONTROL,
+        ),
+        _ServiceSpec(
             SERVICE_ACCESS_CONTROL_SET_MODE,
             async_access_control_set_mode,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_MODE): vol.In(["black", "white"]),
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_PARENTAL_CONTROL,
+        ),
+        _ServiceSpec(
             SERVICE_ACCESS_CONTROL_SET_DEVICE_BLOCK,
             async_access_control_set_device_block,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_SRC_MAC): cv.string,
                     vol.Required(ATTR_BLOCK): cv.boolean,
                 }
             ),
-        )
-        hass.services.async_register(
-            DOMAIN,
+            feature=FEATURE_PARENTAL_CONTROL,
+        ),
+        _ServiceSpec(
             SERVICE_PARENTAL_CONTROL_SET_GROUP_SCHEDULES,
             async_parental_control_set_group_schedules,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_GROUP_ID): cv.string,
                     vol.Required(ATTR_ENABLED): cv.boolean,
                 }
             ),
-        )
-    else:
-        for service in [
-            SERVICE_PARENTAL_CONTROL_SET_TEMPORARY_OVERRIDE,
-            SERVICE_PARENTAL_CONTROL_SET_FILTERING_MODE,
-            SERVICE_PARENTAL_CONTROL_UPDATE_SIGNATURES,
-            SERVICE_ACCESS_CONTROL_SET_MODE,
-            SERVICE_ACCESS_CONTROL_SET_DEVICE_BLOCK,
-            SERVICE_PARENTAL_CONTROL_SET_GROUP_SCHEDULES,
-        ]:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+            feature=FEATURE_PARENTAL_CONTROL,
+        ),
+    )
 
-    if playground_enabled:
-        hass.services.async_register(
-            DOMAIN,
+    _PLAYGROUND_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
             SERVICE_PLAYGROUND,
             async_playground,
-            schema=vol.Schema(
+            vol.Schema(
                 {
                     vol.Optional(CONF_MAC): cv.string,
                     vol.Required(ATTR_METHOD): cv.string,
@@ -934,29 +885,54 @@ async def async_register_services(hass: HomeAssistant) -> None:
                 }
             ),
             supports_response=SupportsResponse.ONLY,
-        )
-    else:
-        if hass.services.has_service(DOMAIN, SERVICE_PLAYGROUND):
-            hass.services.async_remove(DOMAIN, SERVICE_PLAYGROUND)
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_FAN_TEMPERATURE,
-        async_set_fan_temperature,
-        schema=vol.Schema(
-            {
-                vol.Optional(CONF_MAC): cv.string,
-                vol.Required(ATTR_TEMPERATURE): vol.All(vol.Coerce(int), vol.Range(min=70, max=90)),
-            }
+            feature=FEATURE_PLAYGROUND,
         ),
     )
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_REFRESH_CLIENTS,
-        async_refresh_clients,
-        schema=vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+    _UNCONDITIONAL_SPECS: tuple[_ServiceSpec, ...] = (
+        _ServiceSpec(
+            SERVICE_SET_FAN_TEMPERATURE,
+            async_set_fan_temperature,
+            vol.Schema(
+                {
+                    vol.Optional(CONF_MAC): cv.string,
+                    vol.Required(ATTR_TEMPERATURE): vol.All(
+                        vol.Coerce(int), vol.Range(min=70, max=90)
+                    ),
+                }
+            ),
+        ),
+        _ServiceSpec(
+            SERVICE_REFRESH_CLIENTS,
+            async_refresh_clients,
+            vol.Schema({vol.Optional(CONF_MAC): cv.string}),
+        ),
     )
+
+    _apply_specs(hass, _SMS_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_SMS))
+    _apply_specs(
+        hass, _REPEATER_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_REPEATER)
+    )
+    _apply_specs(
+        hass, _FIREWALL_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_FIREWALL)
+    )
+    _apply_specs(hass, _KMWAN_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_KMWAN))
+    _apply_specs(hass, _MWAN3_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_MWAN3))
+    _apply_specs(
+        hass, _MCU_BATTERY_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_MCU_BATTERY)
+    )
+    _apply_specs(
+        hass, _MCU_OLED_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_MCU_OLED)
+    )
+    _apply_specs(
+        hass,
+        _PARENTAL_CONTROL_SPECS,
+        _feature_enabled_for_any_entry(entries, FEATURE_PARENTAL_CONTROL),
+    )
+    _apply_specs(
+        hass, _PLAYGROUND_SPECS, _feature_enabled_for_any_entry(entries, FEATURE_PLAYGROUND)
+    )
+    _apply_specs(hass, _UNCONDITIONAL_SPECS, True)
 
 
 def _get_hub(hass: HomeAssistant, call_data: dict[str, Any]) -> GLinetHub:
