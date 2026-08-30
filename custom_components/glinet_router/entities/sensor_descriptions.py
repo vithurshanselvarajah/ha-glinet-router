@@ -680,18 +680,20 @@ CLIENT_DIAGNOSTIC_SENSORS: tuple[ClientSensorEntityDescription, ...] = (
 )
 
 
+_REPEATER_STATE_LABELS: dict[RepeaterState, str] = {
+    RepeaterState.INITIALIZING: "initializing",
+    RepeaterState.NOT_USED: "not_used",
+    RepeaterState.CONNECTING: "connecting",
+    RepeaterState.CONNECTED: "connected",
+    RepeaterState.FAILED: "failed",
+    RepeaterState.WAN_AVAILABLE: "wan_available",
+}
+
+
 def _repeater_state_value(hub: GLinetHub) -> str | None:
     if hub.repeater_status is None:
         return None
-    state_map = {
-        RepeaterState.INITIALIZING: "initializing",
-        RepeaterState.NOT_USED: "not_used",
-        RepeaterState.CONNECTING: "connecting",
-        RepeaterState.CONNECTED: "connected",
-        RepeaterState.FAILED: "failed",
-        RepeaterState.WAN_AVAILABLE: "wan_available",
-    }
-    return state_map.get(hub.repeater_status.state)
+    return _REPEATER_STATE_LABELS.get(hub.repeater_status.state)
 
 
 def _repeater_state_attributes(hub: GLinetHub) -> dict[str, Any] | None:
@@ -776,15 +778,16 @@ def _wan_protocol_field(protocol: str) -> str:
     return "status_v6" if protocol == "ipv6" else "status_v4"
 
 
+_WAN_PROTOCOL_LABELS: dict[int, str] = {
+    0: "Up",
+    1: "Down",
+}
+
+
 def _wan_protocol_status(interface: dict[str, Any] | None, protocol: str) -> str:
     if interface is None:
         return "Unknown"
-    value = interface.get(_wan_protocol_field(protocol))
-    if value == 0:
-        return "Up"
-    if value == 1:
-        return "Down"
-    return "Unknown"
+    return _WAN_PROTOCOL_LABELS.get(interface.get(_wan_protocol_field(protocol)), "Unknown")
 
 
 def _wan_monitor_parts(monitor: str) -> tuple[str, str] | None:
@@ -810,10 +813,16 @@ def _mcu_value(hub: GLinetHub, key: str) -> Any:
     return status.mcu.get(key)
 
 
+_BATTERY_CHARGING_LABELS: dict[int, str] = {
+    1: "charging",
+    0: "not_charging",
+}
+
+
 def _battery_charging_status(hub: GLinetHub) -> str | None:
     value = _mcu_value(hub, "charging_status")
-    if value == 1:
-        return "charging"
+    if isinstance(value, int):
+        return _BATTERY_CHARGING_LABELS.get(value)
     if value == 0:
         return "not_charging"
     return None
