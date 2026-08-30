@@ -66,12 +66,12 @@ def _extract_access_macs(data: dict[str, Any], section: str, key: str) -> list[s
     return []
 
 
-def _access_mode_is_black(mode: str) -> bool:
-    return mode in {"black", "blacklist", "deny"}
-
-
-def _access_mode_is_white(mode: str) -> bool:
-    return mode in {"white", "whitelist", "allow"}
+def _resolve_access_mode(mode: str) -> str:
+    if mode in {"black", "blacklist", "deny"}:
+        return "black"
+    if mode in {"white", "whitelist", "allow"}:
+        return "white"
+    raise ValueError(f"Unknown access control mode: {mode}")
 
 
 def _normalise_traffic_config(

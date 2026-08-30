@@ -75,12 +75,11 @@ from .const import (
 from .hub_helpers import (
     _FIRMWARE_INFO_ALIASES,
     EntityCleanupRule,
-    _access_mode_is_black,
-    _access_mode_is_white,
     _extract_access_macs,
     _merge_modem_lists,
     _modem_key,
     _normalise_traffic_config,
+    _resolve_access_mode,
     _select_sms_modem,
     _sms_status_is_read,
 )
@@ -924,7 +923,8 @@ class GLinetHub(DataUpdateCoordinator[None]):
 
     async def set_single_device_block(self, mac: str, block: bool) -> None:
         mode = self._access_control_mode
-        operate = "add" if (block if _access_mode_is_black(mode) else not block) else "del"
+        is_black = _resolve_access_mode(mode) == "black"
+        operate = "add" if (block if is_black else not block) else "del"
         await self._invoke_api(
             lambda: self.router_api.black_white_list.set_single_mac(
                 mode,
@@ -2096,7 +2096,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
 
     def device_internet_access_enabled(self, mac: str) -> bool:
         normalized_mac = mac.lower()
-        if _access_mode_is_white(self._access_control_mode):
+        if _resolve_access_mode(self._access_control_mode) == "white":
             return normalized_mac in self._white_mac
         return normalized_mac not in self._black_mac
 
