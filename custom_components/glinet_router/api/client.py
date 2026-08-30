@@ -5,7 +5,7 @@ import hashlib
 import re
 from typing import Any
 
-from aiohttp import ClientResponse, ClientSession
+from aiohttp import ClientResponse, ClientResponseError, ClientSession
 from passlib.hash import md5_crypt, sha256_crypt, sha512_crypt
 
 from .const import (
@@ -55,7 +55,7 @@ def _decode_firmware_version(version: str) -> tuple[int, int, int, int]:
 async def _extract_response_data(response: ClientResponse) -> dict[str, Any] | list[Any]:
     try:
         payload = await response.json(content_type=None)
-    except Exception as exc:
+    except (ValueError, ClientResponseError) as exc:
         text = await response.text()
         raise UnsuccessfulRequest(
             f"Request failed or returned invalid JSON (status {response.status}): {text}"
