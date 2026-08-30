@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
-    SensorStateClass,
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
@@ -17,7 +16,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ..const import DOMAIN, FEATURE_CELLULAR, FEATURE_REPEATER
 from ..hub import GLinetHub
-from ..models import ClientDeviceInfo, RepeaterState
+from ..models import ClientDeviceInfo
 from ..utils import channel_to_band
 from .sensor_descriptions import (
     CELLULAR_TRAFFIC_SIM_PREFIX,
@@ -443,8 +442,6 @@ __all__ = [
     "HubSensorEntityDescription",
     "HubStatusSensor",
     "RepeaterChannelSensor",
-    "RepeaterState",
-    "SensorStateClass",
     "SystemStatusEntityDescription",
     "SystemStatusSensor",
     "SystemUptimeSensor",
