@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from operator import attrgetter
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
@@ -270,7 +271,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         has_entity_name=True,
         icon="mdi:devices",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda hub: hub.online_client_count,
+        value_fn=attrgetter("online_client_count"),
     ),
     HubSensorEntityDescription(
         key="wan_download_rate",
@@ -280,7 +281,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.DATA_RATE,
         native_unit_of_measurement="B/s",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda hub: hub.current_traffic_download,
+        value_fn=attrgetter("current_traffic_download"),
     ),
     HubSensorEntityDescription(
         key="wan_upload_rate",
@@ -290,7 +291,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.DATA_RATE,
         native_unit_of_measurement="B/s",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda hub: hub.current_traffic_upload,
+        value_fn=attrgetter("current_traffic_upload"),
     ),
     HubSensorEntityDescription(
         key="wan_download_total",
@@ -300,7 +301,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement="B",
         state_class=SensorStateClass.TOTAL,
-        value_fn=lambda hub: hub.total_traffic_download,
+        value_fn=attrgetter("total_traffic_download"),
     ),
     HubSensorEntityDescription(
         key="wan_upload_total",
@@ -310,7 +311,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement="B",
         state_class=SensorStateClass.TOTAL,
-        value_fn=lambda hub: hub.total_traffic_upload,
+        value_fn=attrgetter("total_traffic_upload"),
     ),
     HubSensorEntityDescription(
         key="cellular_ipv4",
@@ -562,7 +563,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="RPM",
-        value_fn=lambda hub: hub.fan_speed,
+        value_fn=attrgetter("fan_speed"),
         extra_attributes_fn=lambda hub: {
             "running": hub.fan_running,
             "temperature_threshold": hub.fan_temperature_threshold,
@@ -578,7 +579,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda hub: hub.fan_temperature_threshold,
+        value_fn=attrgetter("fan_temperature_threshold"),
     ),
     HubSensorEntityDescription(
         key="wg_server_users",
@@ -586,7 +587,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         has_entity_name=True,
         icon="mdi:account-group",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda hub: hub.wg_server_connected_users,
+        value_fn=attrgetter("wg_server_connected_users"),
     ),
     HubSensorEntityDescription(
         key="ovpn_server_users",
@@ -594,7 +595,7 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         has_entity_name=True,
         icon="mdi:account-group",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda hub: hub.ovpn_server_connected_users,
+        value_fn=attrgetter("ovpn_server_connected_users"),
     ),
 )
 
