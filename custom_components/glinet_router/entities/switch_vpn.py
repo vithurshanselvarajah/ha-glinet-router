@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from ..hub import GLinetHub
 from ..models import OpenVpnClient, VpnTunnel, VpnTunnelType, WireGuardClient
 from .switch_base import GLinetSwitchBase
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class TailscaleSwitch(GLinetSwitchBase):
@@ -268,12 +265,10 @@ class ZeroTierSwitch(GLinetSwitchBase):
         return self._hub.zerotier_status.enabled
 
     async def async_turn_on(self, **_: Any) -> None:
-        await self._hub.start_zerotier()
-        await self._hub.async_request_refresh()
+        await self._safe_set(self._hub.start_zerotier, "Unable to start ZeroTier")
 
     async def async_turn_off(self, **_: Any) -> None:
-        await self._hub.stop_zerotier()
-        await self._hub.async_request_refresh()
+        await self._safe_set(self._hub.stop_zerotier, "Unable to stop ZeroTier")
 
     @property
     def available(self) -> bool:
