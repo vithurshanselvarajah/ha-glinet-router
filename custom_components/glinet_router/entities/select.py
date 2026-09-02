@@ -10,9 +10,9 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from ..const import DOMAIN, FEATURE_PARENTAL_CONTROL, FEATURE_REPEATER
+from ..const import FEATURE_PARENTAL_CONTROL, FEATURE_REPEATER
 from ..hub import GLinetHub
-from ..models import ClientDeviceInfo
+from ..models import ClientDeviceInfo, ScannedNetwork
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -94,15 +94,19 @@ class WifiNetworkSelect(CoordinatorEntity[GLinetHub], SelectEntity):
         saved = self._hub.saved_networks
         if saved:
             options_list.append(HEADER_KNOWN)
-            for network in saved:
-                ssid = network.get("ssid")
-                if ssid and ssid not in seen:
-                    seen.add(ssid)
-                    options_list.append(ssid)
+            for saved_network in saved:
+                ssid_raw = saved_network.get("ssid")
+                if not isinstance(ssid_raw, str) or not ssid_raw or ssid_raw in seen:
+                    continue
+                seen.add(ssid_raw)
+                options_list.append(ssid_raw)
 
-        scanned = self._hub.scanned_networks
+        scanned: list[ScannedNetwork] = list(self._hub.scanned_networks)
         available_ssids: list[str] = []
-        for network in sorted(scanned, key=lambda n: n.signal, reverse=True):
+        sorted_networks: list[ScannedNetwork] = sorted(
+            scanned, key=lambda n: n.signal, reverse=True
+        )
+        for network in sorted_networks:
             if network.ssid and network.ssid not in seen:
                 seen.add(network.ssid)
                 available_ssids.append(network.ssid)
@@ -217,7 +221,7 @@ class GLinetClientParentalGroupSelect(CoordinatorEntity[GLinetHub], SelectEntity
         self._attr_device_info = DeviceInfo(
             connections={(CONNECTION_NETWORK_MAC, format_mac(device.mac))},
             name=device.name or device.mac,
-            via_device=(DOMAIN, self._hub.router_id),
+            via_device_id=hub.router_device_id,  # type: ignore[typeddict-item]
         )
 
     @property

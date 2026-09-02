@@ -44,7 +44,7 @@ class FirewallModule(BaseModule):
         return await self._call("firewall", "get_dmz")
 
     async def set_dmz(self, enabled: bool, dest_ip: str | None = None) -> dict[str, Any]:
-        params = {"enabled": enabled}
+        params: dict[str, Any] = {"enabled": enabled}
         if dest_ip:
             params["dest_ip"] = dest_ip
         return await self._call("firewall", "set_dmz", params)

@@ -5,7 +5,6 @@ from typing import Any
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, format_mac
 from homeassistant.helpers.entity import DeviceInfo
 
-from ..const import DOMAIN
 from ..hub import GLinetHub
 from ..models import ClientDeviceInfo, ParentalGroup
 from .switch_base import GLinetSwitchBase
@@ -81,7 +80,7 @@ class GLinetClientInternetAccessSwitch(GLinetSwitchBase):
         self._attr_device_info = DeviceInfo(
             connections={(CONNECTION_NETWORK_MAC, format_mac(device.mac))},
             name=device.name or device.mac,
-            via_device=(DOMAIN, self._hub.router_id),
+            via_device_id=hub.router_device_id,  # type: ignore[typeddict-item]
         )
 
     @property

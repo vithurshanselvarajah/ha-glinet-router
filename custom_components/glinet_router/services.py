@@ -346,7 +346,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def async_get_firewall_rules(call: ServiceCall) -> ServiceResponse:
         hub = _get_hub(hass, call.data)
         _ensure_feature_enabled(hub, FEATURE_FIREWALL, "get_firewall_rules")
-        return {"rules": await hub.get_firewall_rule_summaries()}
+        return {"rules": await hub.get_firewall_rule_summaries()}  # type: ignore[dict-item]
 
     async def async_add_port_forward(call: ServiceCall) -> None:
         hub = _get_hub(hass, call.data)

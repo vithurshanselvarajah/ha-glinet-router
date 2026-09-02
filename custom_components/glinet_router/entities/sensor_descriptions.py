@@ -109,8 +109,9 @@ def _build_cellular_traffic_descriptions(
             slot=slot,
             sim_type=sim_type,
             value_fn=lambda hub, current_slot, current_sim_type: (
-                int(_get_traffic_sim(hub, current_slot).get("traffic_total") or 0)
-                if _traffic_sim_present(hub, current_slot)
+                int(record.get("traffic_total") or 0)
+                if (record := _get_traffic_sim(hub, current_slot)) is not None
+                and _traffic_sim_present(hub, current_slot)
                 else None
             ),
         ),
@@ -126,8 +127,9 @@ def _build_cellular_traffic_descriptions(
             sim_type=sim_type,
             requires_limit=True,
             value_fn=lambda hub, current_slot, current_sim_type: (
-                _get_traffic_sim(hub, current_slot).get("days_until_reset")
-                if _traffic_sim_limit_enabled(hub, current_slot)
+                record.get("days_until_reset")
+                if (record := _get_traffic_sim(hub, current_slot)) is not None
+                and _traffic_sim_limit_enabled(hub, current_slot)
                 else None
             ),
         ),
@@ -144,8 +146,9 @@ def _build_cellular_traffic_descriptions(
             sim_type=sim_type,
             requires_limit=True,
             value_fn=lambda hub, current_slot, current_sim_type: (
-                _get_traffic_sim(hub, current_slot).get("threshold")
-                if _traffic_sim_limit_enabled(hub, current_slot)
+                record.get("threshold")
+                if (record := _get_traffic_sim(hub, current_slot)) is not None
+                and _traffic_sim_limit_enabled(hub, current_slot)
                 else None
             ),
             extra_attributes_fn=lambda hub, current_slot, current_sim_type: (
@@ -203,7 +206,7 @@ SYSTEM_SENSORS: tuple[SystemStatusEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
-        value_fn=lambda s: (s.load_average or [None])[0] if s else None,
+        value_fn=lambda s: (s.load_average or [None])[0] if s else None,  # type: ignore[arg-type,list-item,return-value]
     ),
     SystemStatusEntityDescription(
         key="load_avg5",
@@ -213,7 +216,7 @@ SYSTEM_SENSORS: tuple[SystemStatusEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
-        value_fn=lambda s: (s.load_average or [None, None])[1] if s else None,
+        value_fn=lambda s: (s.load_average or [None, None])[1] if s else None,  # type: ignore[arg-type,list-item,return-value]
     ),
     SystemStatusEntityDescription(
         key="load_avg15",
@@ -223,7 +226,7 @@ SYSTEM_SENSORS: tuple[SystemStatusEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
-        value_fn=lambda s: (s.load_average or [None, None, None])[2] if s else None,
+        value_fn=lambda s: (s.load_average or [None, None, None])[2] if s else None,  # type: ignore[arg-type,list-item,return-value]
     ),
     SystemStatusEntityDescription(
         key="memory_use",
@@ -787,7 +790,10 @@ _WAN_PROTOCOL_LABELS: dict[int, str] = {
 def _wan_protocol_status(interface: dict[str, Any] | None, protocol: str) -> str:
     if interface is None:
         return "Unknown"
-    return _WAN_PROTOCOL_LABELS.get(interface.get(_wan_protocol_field(protocol)), "Unknown")
+    value = interface.get(_wan_protocol_field(protocol))
+    if not isinstance(value, int):
+        return "Unknown"
+    return _WAN_PROTOCOL_LABELS.get(value, "Unknown")
 
 
 def _wan_monitor_parts(monitor: str) -> tuple[str, str] | None:

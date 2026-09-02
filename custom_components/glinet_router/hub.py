@@ -161,6 +161,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         self._last_wifi_scan: datetime | None = None
         self._saved_networks: list[dict[str, Any]] = []
         self._fan_status: FanStatus | None = None
+        self._wg_server_status: dict[str, Any] = {}
         self._wg_server_peers: list[dict[str, Any]] = []
         self._ovpn_clients: dict[str, OpenVpnClient] = {}
         self._ovpn_connections: list[OpenVpnClient] | None = None
@@ -372,24 +373,17 @@ class GLinetHub(DataUpdateCoordinator[None]):
 
                 if mac:
                     dev_reg = dr.async_get(self.hass)
-                    device = dev_reg.async_get_device(
-                        connections={(CONNECTION_NETWORK_MAC, format_mac(mac))}
+                    device = dev_reg.async_get_device_by_connection(
+                        (CONNECTION_NETWORK_MAC, format_mac(mac)),
+                        self._entry.entry_id,
                     )
-                    if not device or not any(
-                        eid != self._entry.entry_id for eid in device.config_entries
-                    ):
+                    if not device:
                         if not self._unknown_device_allowed(mac):
                             _LOGGER.debug(
                                 "Removing unknown device entity %s (discovery disabled)",
                                 entry.entity_id,
                             )
                             entity_registry.async_remove(entry.entity_id)
-                            if device:
-                                _LOGGER.debug(
-                                    "Removing unknown device %s (discovery disabled)",
-                                    device.name or mac,
-                                )
-                                dev_reg.async_remove_device(device.id)
                             removed = True
 
             if removed:
@@ -818,7 +812,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         rule_id: str | None = None,
         remove_all: bool = False,
     ) -> None:
-        params = {}
+        params: dict[str, Any] = {}
         if remove_all:
             params["all"] = True
         elif rule_id:
@@ -964,10 +958,10 @@ class GLinetHub(DataUpdateCoordinator[None]):
             if not should_include and normalized_mac in group_macs:
                 group_macs = [item for item in group_macs if item != normalized_mac]
             if group_macs != group.macs:
-                params = group.with_updates(mac=group_macs, macs=group_macs)
+                params: dict[str, Any] = group.with_updates(mac=group_macs, macs=group_macs)
                 params.pop("id", None)
                 await self._invoke_api(
-                    lambda group=group, params=params: self.router_api.parental_control.set_group(
+                    lambda group=group, params=params: self.router_api.parental_control.set_group(  # type: ignore[misc]
                         group.id,
                         **params,
                     )
@@ -991,13 +985,12 @@ class GLinetHub(DataUpdateCoordinator[None]):
             if device_mac in self._devices:
                 continue
 
-            existing_device = dev_reg.async_get_device(
-                connections={(CONNECTION_NETWORK_MAC, format_mac(device_mac))}
+            existing_device = dev_reg.async_get_device_by_connection(
+                (CONNECTION_NETWORK_MAC, format_mac(device_mac)),
+                self._entry.entry_id,
             )
 
-            if not existing_device or not any(
-                entry_id != self._entry.entry_id for entry_id in existing_device.config_entries
-            ):
+            if not existing_device:
                 if not self._unknown_device_allowed(device_mac):
                     continue
                 device_is_known = False
@@ -1050,10 +1043,11 @@ class GLinetHub(DataUpdateCoordinator[None]):
                     }
                 ):
                     entity_registry.async_remove(entry.entity_id)
-            ha_device = device_registry.async_get_device(
-                connections={(CONNECTION_NETWORK_MAC, format_mac(mac))}
+            ha_device = device_registry.async_get_device_by_connection(
+                (CONNECTION_NETWORK_MAC, format_mac(mac)),
+                self._entry.entry_id,
             )
-            if ha_device and len(ha_device.config_entries) <= 1:
+            if ha_device:
                 device_registry.async_remove_device(ha_device.id)
 
     async def fetch_wifi_interfaces(self) -> None:
@@ -1291,7 +1285,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
             self._ovpn_client_status = {}
             return
 
-        self._ovpn_client_status = state_response
+        self._ovpn_client_status = state_response  # type: ignore[assignment]
         self._ovpn_connections = []
         for state in state_response:
             if state.get("type") not in {None, "openvpn"}:
@@ -1336,7 +1330,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
             return
         for conn in self._ovpn_connections:
             await self._invoke_api(
-                lambda conn=conn: self.router_api.ovpn_client.stop(
+                lambda conn=conn: self.router_api.ovpn_client.stop(  # type: ignore[misc]
                     conn.group_id, conn.client_id, conn.tunnel_id
                 )
             )
@@ -1391,19 +1385,21 @@ class GLinetHub(DataUpdateCoordinator[None]):
         self._zerotier_status = ZeroTierStatus.from_api_response(config, status)
 
     async def start_zerotier(self) -> None:
-        if self._zerotier_status and self._zerotier_status.network_id:
+        status = self._zerotier_status
+        if status and status.network_id:
             await self._invoke_api(
                 lambda: self.router_api.zerotier.set_config(
-                    {"enabled": True, "id": self._zerotier_status.network_id}
+                    {"enabled": True, "id": status.network_id}
                 )
             )
             await self.fetch_zerotier_status()
 
     async def stop_zerotier(self) -> None:
-        if self._zerotier_status and self._zerotier_status.network_id:
+        status = self._zerotier_status
+        if status and status.network_id:
             await self._invoke_api(
                 lambda: self.router_api.zerotier.set_config(
-                    {"enabled": False, "id": self._zerotier_status.network_id}
+                    {"enabled": False, "id": status.network_id}
                 )
             )
             await self.fetch_zerotier_status()
@@ -1422,7 +1418,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         await self.fetch_led_status()
 
     async def fetch_adguard_status(self) -> None:
-        data = await self._invoke_optional_api(self._api.adguard.get_config)
+        data = await self._invoke_optional_api(self.router_api.adguard.get_config)
         if data is not None:
             self._adguard_status = AdGuardStatus.from_api_response(data)
 
@@ -1433,13 +1429,13 @@ class GLinetHub(DataUpdateCoordinator[None]):
     async def set_adguard_enabled(self, enabled: bool) -> None:
         current = self._adguard_status
         dns_enabled = current.dns_enabled if current else False
-        await self._invoke_api(lambda: self._api.adguard.set_config(enabled, dns_enabled))
+        await self._invoke_api(lambda: self.router_api.adguard.set_config(enabled, dns_enabled))
         await self.fetch_adguard_status()
 
     async def set_adguard_dns_enabled(self, dns_enabled: bool) -> None:
         current = self._adguard_status
         enabled = current.enabled if current else False
-        await self._invoke_api(lambda: self._api.adguard.set_config(enabled, dns_enabled))
+        await self._invoke_api(lambda: self.router_api.adguard.set_config(enabled, dns_enabled))
         await self.fetch_adguard_status()
 
     async def fetch_cellular_status(self) -> None:
@@ -1479,7 +1475,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
             return
 
         response = await self._invoke_optional_api(
-            lambda b=bus: self.router_api.modem.get_traffic_config(b)
+            lambda b=bus: self.router_api.modem.get_traffic_config(b)  # type: ignore[misc]
         )
         if not response:
             self._traffic_sim_data = {}
@@ -1579,7 +1575,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
                 continue
             seen_buses.add(bus)
             sim_response = await self._invoke_optional_api(
-                lambda b=bus: self.router_api.modem.get_sim_config(b)
+                lambda b=bus: self.router_api.modem.get_sim_config(b)  # type: ignore[misc]
             )
             if not sim_response:
                 continue
@@ -1690,7 +1686,9 @@ class GLinetHub(DataUpdateCoordinator[None]):
         params: dict[str, Any] = {}
         if refresh or all_band or dfs:
             params["refresh"] = True
-        response = await self._invoke_api(lambda: self.router_api.repeater.scan(params))
+        response: list[dict[str, Any]] | None = await self._invoke_api(
+            lambda: self.router_api.repeater.scan(params)
+        )
         if response is None:
             _LOGGER.warning(
                 "WiFi scan returned None, keeping %d cached networks",
@@ -1880,6 +1878,15 @@ class GLinetHub(DataUpdateCoordinator[None]):
         return self._entry.unique_id or self._entry.entry_id
 
     @property
+    def router_device_id(self) -> str | None:
+        dev_reg = dr.async_get(self.hass)
+        device = dev_reg.async_get_device_by_identifier(
+            (DOMAIN, self.router_id),
+            self._entry.entry_id,
+        )
+        return device.id if device is not None else None
+
+    @property
     def device_mac(self) -> str:
         return self._factory_mac
 
@@ -1983,8 +1990,8 @@ class GLinetHub(DataUpdateCoordinator[None]):
         return len(self._ovpn_server_users)
 
     @property
-    def active_vpn_connections(self) -> list[Any]:
-        connections = []
+    def active_vpn_connections(self) -> list[VpnTunnel | WireGuardClient | OpenVpnClient]:
+        connections: list[VpnTunnel | WireGuardClient | OpenVpnClient] = []
         if self._vpn_tunnel_connections:
             connections.extend(self._vpn_tunnel_connections)
         if self._wireguard_connections:

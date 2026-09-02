@@ -332,9 +332,8 @@ async def test_cleanup_stale_devices_removes_unknown_device_entities(monkeypatch
     retained = SimpleNamespace(entity_id="sensor.other", unique_id="other")
     entity_registry = MagicMock()
     device_registry = MagicMock()
-    device_registry.async_get_device.return_value = SimpleNamespace(
+    device_registry.async_get_device_by_connection.return_value = SimpleNamespace(
         id="device-id",
-        config_entries={"entry"},
     )
 
     monkeypatch.setattr(hub_module.er, "async_get", lambda _: entity_registry)

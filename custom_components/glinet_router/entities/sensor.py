@@ -14,7 +14,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from ..const import DOMAIN, FEATURE_CELLULAR, FEATURE_REPEATER
+from ..const import FEATURE_CELLULAR, FEATURE_REPEATER
 from ..hub import GLinetHub
 from ..models import ClientDeviceInfo
 from ..utils import channel_to_band
@@ -66,18 +66,19 @@ async def async_setup_entry(
     if wan_status_monitors is None:
         for interface in _wan_interfaces(hub):
             interface_name = interface.get("interface")
-            if interface_name:
-                entities.append(WanStatusSensor(hub, str(interface_name), {"ipv4", "ipv6"}))
+            if isinstance(interface_name, str) and interface_name:
+                entities.append(WanStatusSensor(hub, interface_name, {"ipv4", "ipv6"}))
     else:
         monitored_interfaces: dict[str, set[str]] = {}
         for monitor in sorted(wan_status_monitors):
             parts = _wan_monitor_parts(monitor)
-            if parts is not None:
-                interface, protocol = parts
-                monitored_interfaces.setdefault(interface, set()).add(protocol)
+            if parts is None:
+                continue
+            interface_name, protocol = parts
+            monitored_interfaces.setdefault(interface_name, set()).add(protocol)
         entities.extend(
-            WanStatusSensor(hub, interface, protocols)
-            for interface, protocols in monitored_interfaces.items()
+            WanStatusSensor(hub, interface_name, protocols)
+            for interface_name, protocols in monitored_interfaces.items()
             if protocols
         )
     entities.append(
@@ -204,15 +205,15 @@ class GLinetSensorBase(CoordinatorEntity[GLinetHub], SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        if self.entity_description.extra_attributes_fn is None:
+        if self.entity_description.extra_attributes_fn is None:  # type: ignore[attr-defined]
             return None
-        return self.entity_description.extra_attributes_fn(self.hub.router_status)
+        return self.entity_description.extra_attributes_fn(self.hub.router_status)  # type: ignore[attr-defined]
 
 
 class SystemStatusSensor(GLinetSensorBase):
     @property
     def native_value(self) -> int | float | None:
-        return self.entity_description.value_fn(self.hub.router_status)
+        return self.entity_description.value_fn(self.hub.router_status)  # type: ignore[attr-defined]
 
 
 class HubStatusSensor(CoordinatorEntity[GLinetHub], SensorEntity):
@@ -228,13 +229,13 @@ class HubStatusSensor(CoordinatorEntity[GLinetHub], SensorEntity):
 
     @property
     def native_value(self) -> int | float | str | None:
-        return self.entity_description.value_fn(self.hub)
+        return self.entity_description.value_fn(self.hub)  # type: ignore[attr-defined]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        if self.entity_description.extra_attributes_fn is None:
+        if self.entity_description.extra_attributes_fn is None:  # type: ignore[attr-defined]
             return None
-        return self.entity_description.extra_attributes_fn(self.hub)
+        return self.entity_description.extra_attributes_fn(self.hub)  # type: ignore[attr-defined]
 
     @property
     def available(self) -> bool:
@@ -283,13 +284,13 @@ class CellularTrafficSensor(CoordinatorEntity[GLinetHub], SensorEntity):
 
     @property
     def native_value(self) -> int | float | None:
-        return self.entity_description.value_fn(self.hub, self._slot, self._sim_type)
+        return self.entity_description.value_fn(self.hub, self._slot, self._sim_type)  # type: ignore[attr-defined]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        if self.entity_description.extra_attributes_fn is None:
+        if self.entity_description.extra_attributes_fn is None:  # type: ignore[attr-defined]
             return None
-        return self.entity_description.extra_attributes_fn(self.hub, self._slot, self._sim_type)
+        return self.entity_description.extra_attributes_fn(self.hub, self._slot, self._sim_type)  # type: ignore[attr-defined]
 
     @property
     def available(self) -> bool:
@@ -382,7 +383,7 @@ class ClientSensor(CoordinatorEntity[GLinetHub], SensorEntity):
         self._attr_device_info = DeviceInfo(
             connections={(CONNECTION_NETWORK_MAC, format_mac(device.mac))},
             name=device.name or device.mac,
-            via_device=(DOMAIN, self._hub.router_id),
+            via_device_id=hub.router_device_id,  # type: ignore[typeddict-item]
         )
 
     @property
@@ -392,7 +393,7 @@ class ClientSensor(CoordinatorEntity[GLinetHub], SensorEntity):
     @property
     def native_value(self) -> int | str | None:
         self._device = self._hub.tracked_devices.get(self._device.mac, self._device)
-        return self.entity_description.value_fn(self._device)
+        return self.entity_description.value_fn(self._device)  # type: ignore[attr-defined]
 
 
 class RepeaterChannelSensor(CoordinatorEntity[GLinetHub], SensorEntity):

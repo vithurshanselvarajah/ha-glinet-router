@@ -149,12 +149,12 @@ async def async_setup_entry(
         if stale_ids:
             registry = async_get_entity_registry(hub.hass)
             for stale_id in list(stale_ids):
-                entity = vpn_tunnel_switches.pop(stale_id, None)
-                if entity is None:
+                entity_to_remove: VpnTunnelSwitch | None = vpn_tunnel_switches.pop(stale_id, None)
+                if entity_to_remove is None:
                     continue
-                await entity.async_remove(force_remove=True)
-                if entity.entity_id:
-                    registry.async_remove(entity.entity_id)
+                await entity_to_remove.async_remove(force_remove=True)
+                if entity_to_remove.entity_id:
+                    registry.async_remove(entity_to_remove.entity_id)
 
     entry.async_on_unload(
         async_dispatcher_connect(

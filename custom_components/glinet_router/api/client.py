@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from aiohttp import ClientResponse, ClientResponseError, ClientSession
-from passlib.hash import md5_crypt, sha256_crypt, sha512_crypt
+from passlib.hash import md5_crypt, sha256_crypt, sha512_crypt  # type: ignore[import-untyped]
 
 from .const import (
     DEFAULT_TIMEOUT,
@@ -47,12 +47,12 @@ from .modules import (
 
 
 def _decode_firmware_version(version: str) -> tuple[int, int, int, int]:
-    numbers = [int(value) for value in re.findall(r"\d+", version)]
-    normalized = [*numbers, 0, 0, 0, 0][:4]
-    return tuple(normalized)
+    numbers: list[int] = [int(value) for value in re.findall(r"\d+", version)]
+    normalized: list[int] = [*numbers, 0, 0, 0, 0][:4]
+    return tuple(normalized)  # type: ignore[return-value]
 
 
-async def _extract_response_data(response: ClientResponse) -> dict[str, Any] | list[Any]:
+async def _extract_response_data(response: ClientResponse) -> Any:
     try:
         payload = await response.json(content_type=None)
     except (ValueError, ClientResponseError) as exc:
@@ -153,9 +153,12 @@ class GLinetApiClient:
 
     async def _send_request(
         self, payload: dict[str, Any], timeout_seconds: int = DEFAULT_TIMEOUT
-    ) -> dict[str, Any] | list[Any]:
+    ) -> Any:
         async with self._session.post(
-            self._base_url, json=payload, timeout=timeout_seconds, ssl=self._ssl_setting
+            self._base_url,
+            json=payload,
+            timeout=timeout_seconds,  # type: ignore[arg-type]
+            ssl=self._ssl_setting,  # type: ignore[arg-type]
         ) as response:
             return await _extract_response_data(response)
 

@@ -85,6 +85,8 @@ def _normalise_traffic_config(
     records: dict[int, dict[str, Any]] = {}
 
     def _coerce_int(value: Any) -> int:
+        if value is None:
+            return 0
         try:
             return int(value)
         except (TypeError, ValueError):
@@ -103,6 +105,8 @@ def _normalise_traffic_config(
             if not isinstance(entry, dict):
                 continue
             slot_raw = entry.get("slot")
+            if slot_raw is None:
+                continue
             try:
                 slot = int(slot_raw)
             except (TypeError, ValueError):
@@ -134,6 +138,8 @@ def _normalise_traffic_config(
                 if not isinstance(entry, dict):
                     continue
                 slot_raw = entry.get("slot")
+                if slot_raw is None:
+                    continue
                 try:
                     slot = int(slot_raw)
                 except (TypeError, ValueError):

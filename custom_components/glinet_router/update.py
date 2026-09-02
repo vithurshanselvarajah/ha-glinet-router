@@ -119,6 +119,6 @@ class GLinetFirmwareUpdateEntity(CoordinatorEntity[GLinetHub], UpdateEntity):
             return None
         return payload
 
-    async def async_install(self, version: str, backup: bool, **kwargs: Any) -> None:
+    async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
         keep_package = bool(kwargs.get("keep_package", True))
         await self._hub.upgrade_firmware(backup, keep_package)

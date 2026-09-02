@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-FEATURE_OPTIONS = [
+FEATURE_OPTIONS: list[selector.SelectOptionDict] = [
     {"label": "Cellular", "value": FEATURE_CELLULAR},
     {"label": "Repeater", "value": FEATURE_REPEATER},
     {"label": "SMS", "value": FEATURE_SMS},
@@ -108,7 +108,7 @@ def _wan_interface_label(interface: str) -> str:
     return WAN_INTERFACE_NAMES.get(interface, interface)
 
 
-def _wan_monitor_options(interfaces: list[str]) -> list[dict[str, str]]:
+def _wan_monitor_options(interfaces: list[str]) -> list[selector.SelectOptionDict]:
     return [
         {
             "label": f"{_wan_interface_label(interface)} {label}",
@@ -200,7 +200,7 @@ def _config_schema(
             ),
         ): selector.SelectSelector(
             selector.SelectSelectorConfig(
-                options=[
+                options=[  # type: ignore[typeddict-item]
                     {"value": "blacklist", "label": "Blacklist"},
                     {"value": "whitelist", "label": "Whitelist"},
                 ],
@@ -217,7 +217,7 @@ def _config_schema(
             )
         ] = selector.SelectSelector(
             selector.SelectSelectorConfig(
-                options=[{"value": k, "label": v} for k, v in discovered_devices.items()],
+                options=[{"value": k, "label": v} for k, v in discovered_devices.items()],  # type: ignore[typeddict-item]
                 multiple=True,
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
