@@ -22,5 +22,5 @@
   "requirements": [
     "passlib==1.7.4"
   ],
-  "version": "1.6.1"
+  "version": "1.6.2"
 }
