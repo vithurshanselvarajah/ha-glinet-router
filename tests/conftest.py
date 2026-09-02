@@ -117,7 +117,8 @@ def pytest_configure() -> None:
         device_registry.CONNECTION_NETWORK_MAC = "mac"
         device_registry.format_mac = lambda mac: str(mac).lower()
         device_registry.async_get = lambda hass: types.SimpleNamespace(
-            async_get_device=lambda connections: None
+            async_get_device_by_connection=lambda connection, config_entry_id: None,
+            async_get_device_by_identifier=lambda identifier, config_entry_id: None,
         )
 
         dispatcher = types.ModuleType("homeassistant.helpers.dispatcher")

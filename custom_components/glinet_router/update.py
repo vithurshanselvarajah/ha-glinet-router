@@ -10,6 +10,7 @@ from homeassistant.components.update import (
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .hub import GLinetHub
+from .utils import pick_first
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -103,27 +104,21 @@ class GLinetFirmwareUpdateEntity(CoordinatorEntity[GLinetHub], UpdateEntity):
             return None
 
     def _firmware_install_payload(self) -> dict[str, Any] | None:
+        from .hub import _FIRMWARE_INFO_ALIASES
+
         info = self._hub.upgrade_info
         payload: dict[str, Any] = {
             "keep_config": True,
             "keep_package": True,
         }
-        for key, aliases in {
-            "url": ("url", "download_url", "downloadUrl", "firmware_url"),
-            "id": ("id", "upgrade_id", "version_id"),
-            "size": ("size", "download_size"),
-            "sha256": ("sha256", "sha-256"),
-        }.items():
-            value = next(
-                (info.get(alias) for alias in aliases if info.get(alias) is not None),
-                None,
-            )
+        for key, aliases in _FIRMWARE_INFO_ALIASES.items():
+            value = pick_first(info, aliases)
             if value is not None:
                 payload[key] = value
         if "url" not in payload or "id" not in payload:
             return None
         return payload
 
-    async def async_install(self, version: str, backup: bool, **kwargs: Any) -> None:
+    async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
         keep_package = bool(kwargs.get("keep_package", True))
         await self._hub.upgrade_firmware(backup, keep_package)

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import ValuesView
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import IntEnum, StrEnum
+from typing import Any
 
 from homeassistant.util import dt as dt_util
 
@@ -396,7 +398,7 @@ class ParentalStatus:
 
         for source in (config.get("groups"), config.get("group"), status.get("groups")):
             if isinstance(source, dict):
-                iterable = source.values()
+                iterable: list[Any] | ValuesView[Any] = source.values()
             elif isinstance(source, list):
                 iterable = source
             else:
@@ -470,7 +472,7 @@ class SmsMessage:
 
     @property
     def status_label(self) -> str:
-        status_labels = {
+        status_labels: dict[SmsStatus, str] = {
             SmsStatus.UNREAD: "Unread",
             SmsStatus.READ: "Read",
             SmsStatus.SENT: "Sent",
@@ -480,7 +482,11 @@ class SmsMessage:
         }
         if self.status is None:
             return "Unknown"
-        return status_labels.get(self.status, f"Unknown ({self.status})")
+        try:
+            status = SmsStatus(self.status)
+        except ValueError:
+            return f"Unknown ({self.status})"
+        return status_labels.get(status, f"Unknown ({self.status})")
 
 
 @dataclass(slots=True)

@@ -18,7 +18,7 @@ class BaseModule:
         method: str,
         params: dict[str, Any] | list[Any] | None = None,
         timeout_seconds: int = DEFAULT_TIMEOUT,
-    ) -> dict[str, Any] | list[Any]:
+    ) -> Any:
         if params is None:
             params = {}
         payload = self._client._build_sid_payload(

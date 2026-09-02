@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -73,6 +72,17 @@ from .const import (
     FEATURE_WG_SERVER,
     FEATURE_ZEROTIER,
 )
+from .hub_helpers import (
+    _FIRMWARE_INFO_ALIASES,
+    EntityCleanupRule,
+    _extract_access_macs,
+    _merge_modem_lists,
+    _modem_key,
+    _normalise_traffic_config,
+    _resolve_access_mode,
+    _select_sms_modem,
+    _sms_status_is_read,
+)
 from .models import (
     AdGuardStatus,
     ClientDeviceInfo,
@@ -91,7 +101,7 @@ from .models import (
     WireGuardServerStatus,
     ZeroTierStatus,
 )
-from .utils import compute_mac_offset, get_first_int
+from .utils import compute_mac_offset, get_first_int, pick_first
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -151,6 +161,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         self._last_wifi_scan: datetime | None = None
         self._saved_networks: list[dict[str, Any]] = []
         self._fan_status: FanStatus | None = None
+        self._wg_server_status: dict[str, Any] = {}
         self._wg_server_peers: list[dict[str, Any]] = []
         self._ovpn_clients: dict[str, OpenVpnClient] = {}
         self._ovpn_connections: list[OpenVpnClient] | None = None
@@ -201,6 +212,21 @@ class GLinetHub(DataUpdateCoordinator[None]):
     @property
     def parallel_requests(self) -> bool:
         return bool(self._settings.get(CONF_PARALLEL_REQUESTS, DEFAULT_PARALLEL_REQUESTS))
+
+    @staticmethod
+    def _extract_mac_from_entry(entry: RegistryEntry) -> str | None:
+        if entry.domain == TRACKER_DOMAIN:
+            return entry.unique_id
+        if entry.unique_id.startswith("glinet_client_sensor/"):
+            return entry.unique_id.split("/")[1]
+        if entry.unique_id.startswith(("glinet_switch/", "glinet_select/")):
+            parts = entry.unique_id.split("/")
+            if len(parts) >= 3 and parts[2] in {
+                "internet_access",
+                "parental_control_group",
+            }:
+                return parts[1]
+        return None
 
     def _wan_status_entity_selected(self, unique_id: str) -> bool:
         prefix = f"glinet_sensor/{self.device_mac}/"
@@ -343,26 +369,19 @@ class GLinetHub(DataUpdateCoordinator[None]):
                 removed = True
 
             if not removed:
-                mac = None
-                if entry.domain == TRACKER_DOMAIN:
-                    mac = entry.unique_id
-                elif entry.unique_id.startswith("glinet_client_sensor/"):
-                    mac = entry.unique_id.split("/")[1]
-                elif entry.unique_id.startswith(("glinet_switch/", "glinet_select/")):
-                    parts = entry.unique_id.split("/")
-                    if len(parts) >= 3 and parts[2] in {
-                        "internet_access",
-                        "parental_control_group",
-                    }:
-                        mac = parts[1]
+                mac = self._extract_mac_from_entry(entry)
 
                 if mac:
                     dev_reg = dr.async_get(self.hass)
-                    device = dev_reg.async_get_device(
+                    devices = dev_reg.async_get_devices(
                         connections={(CONNECTION_NETWORK_MAC, format_mac(mac))}
                     )
+                    device = next(
+                        (d for d in devices if d.config_entry_id == self._entry.entry_id),
+                        None,
+                    )
                     if not device or not any(
-                        eid != self._entry.entry_id for eid in device.config_entries
+                        d.config_entry_id != self._entry.entry_id for d in devices
                     ):
                         if not self._unknown_device_allowed(mac):
                             _LOGGER.debug(
@@ -747,20 +766,8 @@ class GLinetHub(DataUpdateCoordinator[None]):
             "keep_config": keep_config,
             "keep_package": keep_package,
         }
-        for key, aliases in {
-            "url": ("url", "download_url", "downloadUrl", "firmware_url"),
-            "id": ("id", "upgrade_id", "version_id"),
-            "size": ("size", "download_size"),
-            "sha256": ("sha256", "sha-256"),
-        }.items():
-            value = next(
-                (
-                    self._upgrade_info.get(alias)
-                    for alias in aliases
-                    if self._upgrade_info.get(alias) is not None
-                ),
-                None,
-            )
+        for key, aliases in _FIRMWARE_INFO_ALIASES.items():
+            value = pick_first(self._upgrade_info, aliases)
             if value is not None:
                 params[key] = value
         if "url" not in params or "id" not in params:
@@ -816,7 +823,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         rule_id: str | None = None,
         remove_all: bool = False,
     ) -> None:
-        params = {}
+        params: dict[str, Any] = {}
         if remove_all:
             params["all"] = True
         elif rule_id:
@@ -925,7 +932,8 @@ class GLinetHub(DataUpdateCoordinator[None]):
 
     async def set_single_device_block(self, mac: str, block: bool) -> None:
         mode = self._access_control_mode
-        operate = "add" if (block if _access_mode_is_black(mode) else not block) else "del"
+        is_black = _resolve_access_mode(mode) == "black"
+        operate = "add" if (block if is_black else not block) else "del"
         await self._invoke_api(
             lambda: self.router_api.black_white_list.set_single_mac(
                 mode,
@@ -961,10 +969,10 @@ class GLinetHub(DataUpdateCoordinator[None]):
             if not should_include and normalized_mac in group_macs:
                 group_macs = [item for item in group_macs if item != normalized_mac]
             if group_macs != group.macs:
-                params = group.with_updates(mac=group_macs, macs=group_macs)
+                params: dict[str, Any] = group.with_updates(mac=group_macs, macs=group_macs)
                 params.pop("id", None)
                 await self._invoke_api(
-                    lambda group=group, params=params: self.router_api.parental_control.set_group(
+                    lambda group=group, params=params: self.router_api.parental_control.set_group(  # type: ignore[misc]
                         group.id,
                         **params,
                     )
@@ -988,13 +996,12 @@ class GLinetHub(DataUpdateCoordinator[None]):
             if device_mac in self._devices:
                 continue
 
-            existing_device = dev_reg.async_get_device(
-                connections={(CONNECTION_NETWORK_MAC, format_mac(device_mac))}
+            existing_device = dev_reg.async_get_device_by_connection(
+                (CONNECTION_NETWORK_MAC, format_mac(device_mac)),
+                self._entry.entry_id,
             )
 
-            if not existing_device or not any(
-                entry_id != self._entry.entry_id for entry_id in existing_device.config_entries
-            ):
+            if not existing_device:
                 if not self._unknown_device_allowed(device_mac):
                     continue
                 device_is_known = False
@@ -1047,10 +1054,11 @@ class GLinetHub(DataUpdateCoordinator[None]):
                     }
                 ):
                     entity_registry.async_remove(entry.entity_id)
-            ha_device = device_registry.async_get_device(
-                connections={(CONNECTION_NETWORK_MAC, format_mac(mac))}
+            ha_device = device_registry.async_get_device_by_connection(
+                (CONNECTION_NETWORK_MAC, format_mac(mac)),
+                self._entry.entry_id,
             )
-            if ha_device and len(ha_device.config_entries) <= 1:
+            if ha_device:
                 device_registry.async_remove_device(ha_device.id)
 
     async def fetch_wifi_interfaces(self) -> None:
@@ -1288,7 +1296,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
             self._ovpn_client_status = {}
             return
 
-        self._ovpn_client_status = state_response
+        self._ovpn_client_status = state_response  # type: ignore[assignment]
         self._ovpn_connections = []
         for state in state_response:
             if state.get("type") not in {None, "openvpn"}:
@@ -1333,7 +1341,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
             return
         for conn in self._ovpn_connections:
             await self._invoke_api(
-                lambda conn=conn: self.router_api.ovpn_client.stop(
+                lambda conn=conn: self.router_api.ovpn_client.stop(  # type: ignore[misc]
                     conn.group_id, conn.client_id, conn.tunnel_id
                 )
             )
@@ -1388,19 +1396,21 @@ class GLinetHub(DataUpdateCoordinator[None]):
         self._zerotier_status = ZeroTierStatus.from_api_response(config, status)
 
     async def start_zerotier(self) -> None:
-        if self._zerotier_status and self._zerotier_status.network_id:
+        status = self._zerotier_status
+        if status and status.network_id:
             await self._invoke_api(
                 lambda: self.router_api.zerotier.set_config(
-                    {"enabled": True, "id": self._zerotier_status.network_id}
+                    {"enabled": True, "id": status.network_id}
                 )
             )
             await self.fetch_zerotier_status()
 
     async def stop_zerotier(self) -> None:
-        if self._zerotier_status and self._zerotier_status.network_id:
+        status = self._zerotier_status
+        if status and status.network_id:
             await self._invoke_api(
                 lambda: self.router_api.zerotier.set_config(
-                    {"enabled": False, "id": self._zerotier_status.network_id}
+                    {"enabled": False, "id": status.network_id}
                 )
             )
             await self.fetch_zerotier_status()
@@ -1419,7 +1429,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         await self.fetch_led_status()
 
     async def fetch_adguard_status(self) -> None:
-        data = await self._invoke_optional_api(self._api.adguard.get_config)
+        data = await self._invoke_optional_api(self.router_api.adguard.get_config)
         if data is not None:
             self._adguard_status = AdGuardStatus.from_api_response(data)
 
@@ -1430,13 +1440,13 @@ class GLinetHub(DataUpdateCoordinator[None]):
     async def set_adguard_enabled(self, enabled: bool) -> None:
         current = self._adguard_status
         dns_enabled = current.dns_enabled if current else False
-        await self._invoke_api(lambda: self._api.adguard.set_config(enabled, dns_enabled))
+        await self._invoke_api(lambda: self.router_api.adguard.set_config(enabled, dns_enabled))
         await self.fetch_adguard_status()
 
     async def set_adguard_dns_enabled(self, dns_enabled: bool) -> None:
         current = self._adguard_status
         enabled = current.enabled if current else False
-        await self._invoke_api(lambda: self._api.adguard.set_config(enabled, dns_enabled))
+        await self._invoke_api(lambda: self.router_api.adguard.set_config(enabled, dns_enabled))
         await self.fetch_adguard_status()
 
     async def fetch_cellular_status(self) -> None:
@@ -1476,7 +1486,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
             return
 
         response = await self._invoke_optional_api(
-            lambda b=bus: self.router_api.modem.get_traffic_config(b)
+            lambda b=bus: self.router_api.modem.get_traffic_config(b)  # type: ignore[misc]
         )
         if not response:
             self._traffic_sim_data = {}
@@ -1576,7 +1586,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
                 continue
             seen_buses.add(bus)
             sim_response = await self._invoke_optional_api(
-                lambda b=bus: self.router_api.modem.get_sim_config(b)
+                lambda b=bus: self.router_api.modem.get_sim_config(b)  # type: ignore[misc]
             )
             if not sim_response:
                 continue
@@ -1687,7 +1697,9 @@ class GLinetHub(DataUpdateCoordinator[None]):
         params: dict[str, Any] = {}
         if refresh or all_band or dfs:
             params["refresh"] = True
-        response = await self._invoke_api(lambda: self.router_api.repeater.scan(params))
+        response: list[dict[str, Any]] | None = await self._invoke_api(
+            lambda: self.router_api.repeater.scan(params)
+        )
         if response is None:
             _LOGGER.warning(
                 "WiFi scan returned None, keeping %d cached networks",
@@ -1877,6 +1889,15 @@ class GLinetHub(DataUpdateCoordinator[None]):
         return self._entry.unique_id or self._entry.entry_id
 
     @property
+    def router_device_id(self) -> str | None:
+        dev_reg = dr.async_get(self.hass)
+        device = dev_reg.async_get_device_by_identifier(
+            (DOMAIN, self.router_id),
+            self._entry.entry_id,
+        )
+        return device.id if device is not None else None
+
+    @property
     def device_mac(self) -> str:
         return self._factory_mac
 
@@ -1980,8 +2001,8 @@ class GLinetHub(DataUpdateCoordinator[None]):
         return len(self._ovpn_server_users)
 
     @property
-    def active_vpn_connections(self) -> list[Any]:
-        connections = []
+    def active_vpn_connections(self) -> list[VpnTunnel | WireGuardClient | OpenVpnClient]:
+        connections: list[VpnTunnel | WireGuardClient | OpenVpnClient] = []
         if self._vpn_tunnel_connections:
             connections.extend(self._vpn_tunnel_connections)
         if self._wireguard_connections:
@@ -2097,7 +2118,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
 
     def device_internet_access_enabled(self, mac: str) -> bool:
         normalized_mac = mac.lower()
-        if _access_mode_is_white(self._access_control_mode):
+        if _resolve_access_mode(self._access_control_mode) == "white":
             return normalized_mac in self._white_mac
         return normalized_mac not in self._black_mac
 
@@ -2207,324 +2228,3 @@ class GLinetHub(DataUpdateCoordinator[None]):
     @property
     def event_cellular_traffic_config_updated(self) -> str:
         return f"{DOMAIN}-cellular-traffic-config-updated-{self._factory_mac}"
-
-
-def _merge_modem_lists(
-    info_modems: list[dict[str, Any]],
-    status_modems: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
-    for modem in [*info_modems, *status_modems]:
-        if not isinstance(modem, dict) or not modem.get("bus"):
-            continue
-        key = _modem_key(modem)
-        merged[key] = merged.get(key, {}) | dict(modem)
-    return list(merged.values())
-
-
-def _modem_key(modem: dict[str, Any]) -> str:
-    bus = str(modem["bus"])
-    slot = modem.get("slot")
-    if slot is None or slot == "":
-        return bus
-    return f"{bus}:slot:{slot}"
-
-
-def _select_sms_modem(modems: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
-    for modem in modems.values():
-        if modem.get("sms_support") is True:
-            return modem
-    for modem in modems.values():
-        if modem.get("simcard"):
-            return modem
-    return next(iter(modems.values()), None)
-
-
-def _sms_status_is_read(status: Any) -> bool | None:
-    if status == 0:
-        return False
-    if isinstance(status, int):
-        return status in {1, 2, 3, 4, 5}
-    return None
-
-
-def _extract_access_macs(data: dict[str, Any], section: str, key: str) -> list[str]:
-    value = data.get(key) or data.get(f"{section}_mac")
-    if isinstance(value, list):
-        return [str(item).lower() for item in value if item]
-    section_data = data.get(section)
-    if isinstance(section_data, dict):
-        value = section_data.get("mac") or section_data.get("macs")
-        if isinstance(value, list):
-            return [str(item).lower() for item in value if item]
-    if isinstance(section_data, list):
-        return [str(item).lower() for item in section_data if item]
-    value = data.get("mac") if data.get("mode") == section else None
-    if isinstance(value, list):
-        return [str(item).lower() for item in value if item]
-    return []
-
-
-def _access_mode_is_black(mode: str) -> bool:
-    return mode in {"black", "blacklist", "deny"}
-
-
-def _access_mode_is_white(mode: str) -> bool:
-    return mode in {"white", "whitelist", "allow"}
-
-
-def _normalise_traffic_config(
-    response: dict[str, Any],
-    *,
-    is_firmware_4_9: bool,
-) -> list[dict[str, Any]]:
-    if not isinstance(response, dict):
-        return []
-    save_to_flash = bool(response.get("save_to_flash"))
-    records: dict[int, dict[str, Any]] = {}
-
-    def _coerce_int(value: Any) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
-
-    def _coerce_str(value: Any) -> str | None:
-        if value is None:
-            return None
-        return str(value)
-
-    if is_firmware_4_9:
-        traffic_items = response.get("traffic") or []
-        if not isinstance(traffic_items, list):
-            traffic_items = []
-        for entry in traffic_items:
-            if not isinstance(entry, dict):
-                continue
-            slot_raw = entry.get("slot")
-            try:
-                slot = int(slot_raw)
-            except (TypeError, ValueError):
-                continue
-            sim_type = _coerce_int(entry.get("type"))
-            traffic_total = _coerce_int(entry.get("traffic_total"))
-            record = records.setdefault(
-                slot,
-                {
-                    "slot": slot,
-                    "sim_type": sim_type,
-                    "traffic_total": 0,
-                    "limit_enabled": False,
-                    "threshold": None,
-                    "unit": None,
-                    "reset_period": None,
-                    "day": None,
-                    "hour": None,
-                    "month": None,
-                    "save_to_flash": save_to_flash,
-                },
-            )
-            record["sim_type"] = sim_type
-            record["traffic_total"] = traffic_total
-
-        limit_items = response.get("limit") or []
-        if isinstance(limit_items, list):
-            for entry in limit_items:
-                if not isinstance(entry, dict):
-                    continue
-                slot_raw = entry.get("slot")
-                try:
-                    slot = int(slot_raw)
-                except (TypeError, ValueError):
-                    continue
-                record = records.setdefault(
-                    slot,
-                    {
-                        "slot": slot,
-                        "sim_type": _coerce_int(entry.get("type")),
-                        "traffic_total": 0,
-                        "limit_enabled": False,
-                        "threshold": None,
-                        "unit": None,
-                        "reset_period": None,
-                        "day": None,
-                        "hour": None,
-                        "month": None,
-                        "save_to_flash": save_to_flash,
-                    },
-                )
-                record["sim_type"] = _coerce_int(entry.get("type"))
-                record["limit_enabled"] = bool(entry.get("enable"))
-                threshold = entry.get("threshold")
-                if threshold is not None:
-                    try:
-                        record["threshold"] = int(threshold)
-                    except (TypeError, ValueError):
-                        record["threshold"] = _coerce_str(threshold)
-                record["unit"] = _coerce_str(entry.get("unit"))
-                record["reset_period"] = _coerce_str(entry.get("reset_period"))
-                day = entry.get("day")
-                if day is not None:
-                    try:
-                        record["day"] = int(day)
-                    except (TypeError, ValueError):
-                        record["day"] = _coerce_str(day)
-                hour = entry.get("hour")
-                if hour is not None:
-                    try:
-                        record["hour"] = int(hour)
-                    except (TypeError, ValueError):
-                        record["hour"] = _coerce_str(hour)
-                month = entry.get("month")
-                if month is not None:
-                    try:
-                        record["month"] = int(month)
-                    except (TypeError, ValueError):
-                        record["month"] = _coerce_str(month)
-    else:
-        for slot in (1, 2):
-            limit_block = response.get(f"sim{slot}_limit")
-            traffic_total = _coerce_int(response.get(f"sim{slot}_traffic_total"))
-            record = {
-                "slot": slot,
-                "sim_type": 0,
-                "traffic_total": traffic_total,
-                "limit_enabled": False,
-                "threshold": None,
-                "unit": None,
-                "reset_period": None,
-                "day": None,
-                "hour": None,
-                "month": None,
-                "save_to_flash": save_to_flash,
-            }
-            if isinstance(limit_block, dict):
-                record["limit_enabled"] = bool(limit_block.get("enable"))
-                threshold = limit_block.get("threshold")
-                if threshold is not None:
-                    try:
-                        record["threshold"] = int(threshold)
-                    except (TypeError, ValueError):
-                        record["threshold"] = _coerce_str(threshold)
-                record["unit"] = _coerce_str(limit_block.get("unit"))
-                record["reset_period"] = _coerce_str(limit_block.get("reset_period"))
-                for field in ("day", "hour", "month"):
-                    value = limit_block.get(field)
-                    if value is None:
-                        continue
-                    try:
-                        record[field] = int(value)
-                    except (TypeError, ValueError):
-                        record[field] = _coerce_str(value)
-            records[slot] = record
-
-    for record in records.values():
-        record["save_to_flash"] = save_to_flash
-        record["present"] = record["traffic_total"] > 0
-        record["days_until_reset"] = _compute_days_until_reset(record)
-
-    return [records[key] for key in sorted(records)]
-
-
-def _compute_days_until_reset(record: dict[str, Any]) -> int | None:
-    if not record.get("limit_enabled") or not record.get("reset_period"):
-        return None
-    period = str(record.get("reset_period"))
-    try:
-        from calendar import monthrange
-        from datetime import timedelta
-
-        now = utcnow().replace(tzinfo=None)
-        day = int(record["day"]) if record.get("day") is not None else 1
-        hour = int(record["hour"]) if record.get("hour") is not None else 0
-        month = int(record["month"]) if record.get("month") is not None else now.month
-    except (TypeError, ValueError):
-        return None
-
-    try:
-        if period == "day":
-            next_reset = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-            if next_reset <= now:
-                next_reset = next_reset + timedelta(days=1)
-            return (next_reset - now).days
-        if period == "week":
-            iso_day = max(1, min(7, day))
-            days_ahead = (iso_day - now.isoweekday()) % 7
-            next_reset = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-            next_reset = next_reset + timedelta(days=days_ahead)
-            if next_reset <= now:
-                next_reset = next_reset + timedelta(days=7)
-            return (next_reset - now).days
-        if period in {"month", "season", "year"}:
-            safe_anchor_day = max(1, min(28, day))
-            safe_anchor_hour = max(0, min(23, hour))
-            if period == "year":
-                try:
-                    candidate = now.replace(
-                        month=max(1, min(12, month)),
-                        day=safe_anchor_day,
-                        hour=safe_anchor_hour,
-                        minute=0,
-                        second=0,
-                        microsecond=0,
-                    )
-                except ValueError:
-                    return None
-                if candidate <= now:
-                    try:
-                        candidate = candidate.replace(year=now.year + 1)
-                    except ValueError:
-                        return None
-                return (candidate - now).days
-            if period == "season":
-                current_quarter = (now.month - 1) // 3
-                candidate_month = current_quarter * 3 + max(1, min(3, month))
-                try:
-                    candidate = now.replace(
-                        month=candidate_month,
-                        day=safe_anchor_day,
-                        hour=safe_anchor_hour,
-                        minute=0,
-                        second=0,
-                        microsecond=0,
-                    )
-                except ValueError:
-                    return None
-                if candidate <= now:
-                    candidate = candidate + timedelta(days=92)
-                return (candidate - now).days
-            days_in_month = monthrange(now.year, now.month)[1]
-            candidate_day = min(safe_anchor_day, days_in_month)
-            try:
-                candidate = now.replace(
-                    day=candidate_day,
-                    hour=safe_anchor_hour,
-                    minute=0,
-                    second=0,
-                    microsecond=0,
-                )
-            except ValueError:
-                return None
-            if candidate <= now:
-                next_month = now.month + 1
-                next_year = now.year
-                if next_month > 12:
-                    next_month = 1
-                    next_year += 1
-                next_days = monthrange(next_year, next_month)[1]
-                candidate = candidate.replace(
-                    year=next_year,
-                    month=next_month,
-                    day=min(safe_anchor_day, next_days),
-                )
-            return (candidate - now).days
-    except (ValueError, TypeError, OverflowError):
-        return None
-    return None
-
-
-@dataclass(frozen=True)
-class EntityCleanupRule:
-    description: str
-    matches: Callable[[RegistryEntry], bool]
-    should_keep: Callable[[RegistryEntry], bool]

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "glinet-router"
-version = "1.6.1"
+version = "1.6.2"
 description = "Unified GL.iNet Router Home Assistant integration with bundled API client"
 readme = "README.md"
 requires-python = ">=3.14"

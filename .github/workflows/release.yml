@@ -172,7 +172,7 @@ jobs:
       - name: Generate changelog with GitHub AI
         id: ai_changelog
         continue-on-error: true
-        uses: actions/ai-inference@v2
+        uses: actions/ai-inference@v3
         with:
           model: openai/gpt-4o
           max-tokens: 700

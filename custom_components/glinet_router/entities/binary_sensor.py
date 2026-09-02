@@ -20,7 +20,7 @@ async def async_setup_entry(
     _: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     hub: GLinetHub = entry.runtime_data
-    entities = [FanRunningBinarySensor(hub)]
+    entities: list[BinarySensorEntity] = [FanRunningBinarySensor(hub)]
     if hub.feature_enabled(FEATURE_REPEATER):
         entities.extend(
             [

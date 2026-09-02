@@ -9,6 +9,14 @@ def compute_mac_offset(mac: str, delta: int, sep: str = ":") -> str:
     return sep.join(new_hex[index : index + 2] for index in range(0, 12, 2)).lower()
 
 
+def pick_first(data: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+    for alias in aliases:
+        value = data.get(alias)
+        if value is not None:
+            return value
+    return None
+
+
 def get_first_int(data: Any, keys: tuple[str, ...], nested: tuple[str, ...] = ()) -> int | None:
     for source in _candidate_dicts(data, nested):
         for key in keys:
@@ -33,22 +41,6 @@ def get_first_value(data: Any, keys: tuple[str, ...], nested: tuple[str, ...] = 
             value = source.get(key)
             if value not in (None, ""):
                 return str(value)
-    return None
-
-
-def get_first_bool(data: dict[str, Any], keys: tuple[str, ...]) -> bool | None:
-    for key in keys:
-        value = data.get(key)
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, int):
-            return value != 0
-        if isinstance(value, str):
-            lowered = value.lower()
-            if lowered in {"1", "true", "on", "enabled", "enable"}:
-                return True
-            if lowered in {"0", "false", "off", "disabled", "disable"}:
-                return False
     return None
 
 

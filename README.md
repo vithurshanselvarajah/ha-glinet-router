@@ -119,11 +119,6 @@ The main documentation lives in the project [Wiki](https://github.com/vithurshan
 * `docs`: Raw markdown files for the documentation wiki.
 * `ha-automations`: Home Assistant automation templates ready to import.
 * `tests`: Unit tests with mocked API/session behavior.
-- `custom_components/glinet_router/api`: Bundled GL.iNet API client code.
-- `custom_components/glinet_router/entities`: Home Assistant entity implementations.
-- `custom_components/glinet_router`: Integration bootstrap, config flow, hub, services, and shared models.
-- `docs`: Raw markdown files for the documentation wiki.
-- `tests`: Unit tests with mocked API/session behavior.
 
 ### Development Checks
 Run the following commands locally to verify code style and tests:

@@ -9,7 +9,6 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from ..const import DOMAIN
 from ..hub import GLinetHub
 from ..models import ClientDeviceInfo
 
@@ -36,7 +35,9 @@ async def async_setup_entry(
             if mac not in tracked
         ]
         for entity in new_entities:
-            tracked.add(entity.unique_id)
+            unique_id = entity.unique_id
+            if isinstance(unique_id, str):
+                tracked.add(unique_id)
         if new_entities:
             async_add_entities(new_entities)
 
@@ -60,10 +61,10 @@ class GLinetDevice(CoordinatorEntity[GLinetHub], ScannerEntity):
         self._attr_name = self._attr_hostname
         self._attr_ip_address = device.ip_address
         self._attr_mac_address = device.mac
-        self._attr_device_info = DeviceInfo(
+        self._attr_device_info = DeviceInfo(  # type: ignore[assignment]
             connections={(CONNECTION_NETWORK_MAC, format_mac(device.mac))},
             name=device.name or device.mac,
-            via_device=(DOMAIN, self._hub.router_id),
+            via_device_id=hub.router_device_id,  # type: ignore[typeddict-item]
         )
 
     @property

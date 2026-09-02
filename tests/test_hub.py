@@ -1673,7 +1673,7 @@ async def test_fetch_connected_devices_respects_add_all_devices_option(monkeypat
     hub.hass = MagicMock()
 
     mock_dr = MagicMock()
-    mock_dr.async_get_device.return_value = None
+    mock_dr.async_get_device_by_connection.return_value = None
     import homeassistant.helpers.device_registry as dr
 
     monkeypatch.setattr(dr, "async_get", lambda _: mock_dr)
@@ -1719,11 +1719,9 @@ async def test_async_initialize_hub_cleans_up_unknown_devices(monkeypatch) -> No
         MagicMock(return_value=[unknown_tracker, unknown_sensor]),
     )
 
+    # Device does NOT exist in HA — orphan entities should be cleaned up
     mock_dr = MagicMock()
-    mock_dr.async_get_device.return_value = types.SimpleNamespace(
-        id="device_id", name="Test Device", config_entries={"test_entry"}
-    )
-    mock_dr.async_remove_device = MagicMock()
+    mock_dr.async_get_device_by_connection.return_value = None
     monkeypatch.setattr(dr, "async_get", lambda _: mock_dr)
 
     hub.refresh_session_token = _noop
@@ -1735,8 +1733,55 @@ async def test_async_initialize_hub_cleans_up_unknown_devices(monkeypatch) -> No
     mock_er.async_remove.assert_any_call("device_tracker.unknown")
     mock_er.async_remove.assert_any_call("sensor.unknown_bandwidth")
 
-    assert mock_dr.async_remove_device.call_count >= 1
-    mock_dr.async_remove_device.assert_any_call("device_id")
+    # Device never existed, so nothing to remove from the registry
+    mock_dr.async_remove_device.assert_not_called()
+
+
+async def test_async_initialize_hub_keeps_known_devices(monkeypatch) -> None:
+    hub = GLinetHub.__new__(GLinetHub)
+    hub._settings = {CONF_ADD_ALL_DEVICES: False}
+    hub._entry = types.SimpleNamespace(entry_id="test_entry", async_on_unload=lambda fn: None)
+    hub.hass = MagicMock()
+    hub._late_init_complete = True
+    hub._factory_mac = "00:11:22:33:44:55"
+
+    known_tracker = types.SimpleNamespace(
+        entity_id="device_tracker.known", unique_id="aa:bb:cc:dd:ee:ff", domain="device_tracker"
+    )
+    known_sensor = types.SimpleNamespace(
+        entity_id="sensor.known_bandwidth",
+        unique_id="glinet_client_sensor/aa:bb:cc:dd:ee:ff/download",
+        domain="sensor",
+    )
+
+    mock_er = MagicMock()
+    mock_er.async_remove = MagicMock()
+
+    import homeassistant.helpers.device_registry as dr
+    import homeassistant.helpers.entity_registry as er
+
+    monkeypatch.setattr(er, "async_get", lambda _: mock_er)
+    monkeypatch.setattr(
+        er,
+        "async_entries_for_config_entry",
+        MagicMock(return_value=[known_tracker, known_sensor]),
+    )
+
+    # Device already exists in HA — should be preserved even with discovery off
+    mock_dr = MagicMock()
+    mock_dr.async_get_device_by_connection.return_value = types.SimpleNamespace(
+        id="device_id", name="Known Device"
+    )
+    monkeypatch.setattr(dr, "async_get", lambda _: mock_dr)
+
+    hub.refresh_session_token = _noop
+    hub.fetch_all_data = _noop
+
+    await hub.async_initialize_hub()
+
+    # No entity or device should be removed
+    mock_er.async_remove.assert_not_called()
+    mock_dr.async_remove_device.assert_not_called()
 
 
 async def test_fetch_wg_server_status(monkeypatch) -> None:
@@ -1813,9 +1858,8 @@ async def test_cleanup_stale_devices_removes_known_device_entities(monkeypatch) 
     tracker = SimpleNamespace(entity_id="device_tracker.phone", unique_id=mac)
     entity_registry = MagicMock()
     device_registry = MagicMock()
-    device_registry.async_get_device.return_value = SimpleNamespace(
+    device_registry.async_get_device_by_connection.return_value = SimpleNamespace(
         id="device-id",
-        config_entries={"entry"},
     )
 
     monkeypatch.setattr(hub_module.er, "async_get", lambda _: entity_registry)
