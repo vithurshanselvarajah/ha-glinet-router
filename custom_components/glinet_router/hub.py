@@ -373,17 +373,28 @@ class GLinetHub(DataUpdateCoordinator[None]):
 
                 if mac:
                     dev_reg = dr.async_get(self.hass)
-                    device = dev_reg.async_get_device_by_connection(
-                        (CONNECTION_NETWORK_MAC, format_mac(mac)),
-                        self._entry.entry_id,
+                    devices = dev_reg.async_get_devices(
+                        connections={(CONNECTION_NETWORK_MAC, format_mac(mac))}
                     )
-                    if not device:
+                    device = next(
+                        (d for d in devices if d.config_entry_id == self._entry.entry_id),
+                        None,
+                    )
+                    if not device or not any(
+                        d.config_entry_id != self._entry.entry_id for d in devices
+                    ):
                         if not self._unknown_device_allowed(mac):
                             _LOGGER.debug(
                                 "Removing unknown device entity %s (discovery disabled)",
                                 entry.entity_id,
                             )
                             entity_registry.async_remove(entry.entity_id)
+                            if device:
+                                _LOGGER.debug(
+                                    "Removing unknown device %s (discovery disabled)",
+                                    device.name or mac,
+                                )
+                                dev_reg.async_remove_device(device.id)
                             removed = True
 
             if removed:
