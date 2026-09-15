@@ -14,7 +14,7 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import format_mac
 
-from glinet import APIClientError, GLinetApiClient, NonZeroResponse
+from glinet_router import APIClientError, GLinetApiClient, NonZeroResponse
 from .const import (
     API_PATH,
     CONF_ADD_ALL_DEVICES,

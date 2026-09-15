@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
     "homeassistant>=2026.5.0",
-    "glinet[auth]==0.0.1",
+    "glinet-router[auth]==0.0.1",
 ]
 
 [project.optional-dependencies]

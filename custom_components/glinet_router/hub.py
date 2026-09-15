@@ -29,7 +29,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util.dt import utcnow
 
-from glinet import (
+from glinet_router import (
     APIClientError,
     ClientError,
     GLinetApiClient,
@@ -37,10 +37,10 @@ from glinet import (
     TailscaleConnection,
     TokenError,
 )
-from glinet.const import FIRMWARE_4_9
-from glinet.exceptions import AuthenticationError
-from glinet.models import RouterStatus
-from glinet.utils import decode_firmware_version
+from glinet_router.const import FIRMWARE_4_9
+from glinet_router.exceptions import AuthenticationError
+from glinet_router.models import RouterStatus
+from glinet_router.utils import decode_firmware_version
 from .const import (
     API_PATH,
     CONF_ADD_ALL_DEVICES,

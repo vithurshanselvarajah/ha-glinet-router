@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTemperature
 from homeassistant.util.dt import utcnow
 
-from glinet.models import RouterStatus
+from glinet_router.models import RouterStatus
 from ..const import (
     FEATURE_CELLULAR,
     FEATURE_FIREWALL,
