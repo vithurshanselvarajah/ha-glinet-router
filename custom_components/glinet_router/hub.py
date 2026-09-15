@@ -41,6 +41,7 @@ from glinet_router.const import FIRMWARE_4_9
 from glinet_router.exceptions import AuthenticationError
 from glinet_router.models import RouterStatus
 from glinet_router.utils import decode_firmware_version
+
 from .const import (
     API_PATH,
     CONF_ADD_ALL_DEVICES,
