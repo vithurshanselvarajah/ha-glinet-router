@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "glinet-router"
+name = "ha-glinet-router"
 version = "1.7.0"
 description = "Unified GL.iNet Router Home Assistant integration"
 readme = "README.md"
@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
     "homeassistant>=2026.5.0",
-    "glinet-router[auth]==0.0.1",
+    "glinet-router[auth]>=0.0.1,<0.1",
 ]
 
 [project.optional-dependencies]

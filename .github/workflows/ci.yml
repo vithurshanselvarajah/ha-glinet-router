@@ -25,7 +25,14 @@ jobs:
       - name: Install test tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[test]" ruff
+          python -m pip install \
+            "glinet-router[auth]>=0.0.1,<0.1" \
+            "homeassistant>=2026.5.0" \
+            "pytest>=8.0" \
+            "pytest-asyncio>=0.24" \
+            "pytest-homeassistant-custom-component>=0.13.0" \
+            "aioresponses>=0.7.7" \
+            "ruff"
 
       - name: Validate JSON metadata
         run: |

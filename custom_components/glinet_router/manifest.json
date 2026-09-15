@@ -23,7 +23,7 @@
     "glinet_router"
   ],
   "requirements": [
-    "glinet-router[auth]==0.0.1"
+    "glinet-router[auth]>=0.0.1,<0.1"
   ],
   "version": "1.7.0"
 }
