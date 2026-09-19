@@ -138,6 +138,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         self._devices: dict[str, ClientDeviceInfo] = {}
         self._all_connected_clients: dict[str, dict[str, Any]] = {}
         self._wifi_ifaces: dict[str, WifiInterface] = {}
+        self._wifi_supported: bool = True
         self._system_status: RouterStatus | None = None
         self._kmwan_status: dict[str, Any] = {}
         self._cellular_status: dict[str, Any] = {}
@@ -489,24 +490,26 @@ class GLinetHub(DataUpdateCoordinator[None]):
                 raise ConfigEntryAuthFailed from exc
 
     async def fetch_all_data(self, _: datetime | None = None) -> None:
-        try:
-            await self.refresh_session_token()
-        except ConfigEntryAuthFailed:
-            raise
-        except (APIClientError, ClientError, TimeoutError, OSError):
-            _LOGGER.debug(
-                "Proactive token refresh failed for %s; will retry during API calls",
-                self._host,
-            )
+        if not self.router_api.logged_in:
+            try:
+                await self.refresh_session_token()
+            except ConfigEntryAuthFailed:
+                raise
+            except (APIClientError, ClientError, TimeoutError, OSError):
+                _LOGGER.debug(
+                    "Proactive token refresh failed for %s; will retry during API calls",
+                    self._host,
+                )
 
         tasks: list[Awaitable[Any]] = [
             self.fetch_system_status(),
             self.fetch_kmwan_status(),
             self.fetch_connected_devices(),
-            self.fetch_wifi_interfaces(),
             self.fetch_fan_status(),
             self.fetch_led_status(),
         ]
+        if self._wifi_supported:
+            tasks.append(self.fetch_wifi_interfaces())
         now = utcnow()
         run_upgrade_check = False
         last_upgrade_check = getattr(self, "_last_upgrade_check", None)
@@ -1062,11 +1065,61 @@ class GLinetHub(DataUpdateCoordinator[None]):
                 device_registry.async_remove_device(ha_device.id)
 
     async def fetch_wifi_interfaces(self) -> None:
-        response = await self._invoke_api(self.router_api.wifi.get_interfaces)
+        try:
+            if self._token_error or self._connect_error:
+                await self.refresh_session_token()
+            response = await self.router_api.wifi.get_interfaces()
+        except NonZeroResponse as err:
+            message = str(err)
+            if "-32601" in message and "Method not found" in message:
+                if self._wifi_supported:
+                    _LOGGER.debug(
+                        "GL.iNet router %s does not expose the wifi API; "
+                        "skipping WiFi interface polls",
+                        self._host,
+                    )
+                self._wifi_supported = False
+                self._wifi_ifaces = {}
+                return
+            if not self._connect_error:
+                _LOGGER.exception(
+                    "GL.iNet router %s returned a router error response", self._host
+                )
+            self._connect_error = True
+            return
+        except TimeoutError:
+            if not self._connect_error:
+                _LOGGER.exception("GL.iNet router %s did not respond in time", self._host)
+            self._connect_error = True
+            return
+        except (TokenError, AuthenticationError):
+            if not self._connect_error:
+                _LOGGER.warning(
+                    "GL.iNet router %s rejected the token or access was denied; "
+                    "a reauthentication will be attempted",
+                    self._host,
+                )
+            self._connect_error = True
+            self._token_error = True
+            return
+        except Exception:
+            if not self._connect_error:
+                _LOGGER.exception("GL.iNet router %s returned an unexpected error", self._host)
+            self._connect_error = True
+            return
+
+        if self._token_error:
+            self._token_error = False
+            _LOGGER.info("GL.iNet router %s token is valid again", self._host)
+        if self._connect_error:
+            self._connect_error = False
+            _LOGGER.info("Reconnected to GL.iNet router %s", self._host)
+
         if not response:
             return
-        for name, iface in response.items():
-            self._wifi_ifaces[name] = WifiInterface(
+        self._wifi_supported = True
+        self._wifi_ifaces = {
+            name: WifiInterface(
                 name=name,
                 enabled=iface.enabled,
                 ssid=iface.ssid,
@@ -1074,6 +1127,8 @@ class GLinetHub(DataUpdateCoordinator[None]):
                 hidden=iface.hidden,
                 encryption=iface.encryption or "UNKNOWN",
             )
+            for name, iface in response.items()
+        }
 
     async def set_wifi_interface_enabled(self, iface_name: str, enabled: bool) -> None:
         await self._invoke_api(
