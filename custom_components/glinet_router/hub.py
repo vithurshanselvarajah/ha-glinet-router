@@ -489,15 +489,16 @@ class GLinetHub(DataUpdateCoordinator[None]):
                 raise ConfigEntryAuthFailed from exc
 
     async def fetch_all_data(self, _: datetime | None = None) -> None:
-        try:
-            await self.refresh_session_token()
-        except ConfigEntryAuthFailed:
-            raise
-        except (APIClientError, ClientError, TimeoutError, OSError):
-            _LOGGER.debug(
-                "Proactive token refresh failed for %s; will retry during API calls",
-                self._host,
-            )
+        if not self.router_api.logged_in:
+            try:
+                await self.refresh_session_token()
+            except ConfigEntryAuthFailed:
+                raise
+            except (APIClientError, ClientError, TimeoutError, OSError):
+                _LOGGER.debug(
+                    "Proactive token refresh failed for %s; will retry during API calls",
+                    self._host,
+                )
 
         tasks: list[Awaitable[Any]] = [
             self.fetch_system_status(),
