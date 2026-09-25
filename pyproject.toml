@@ -22,7 +22,7 @@ test = [
     "pytest>=8.0",
     "pytest-asyncio>=1.4.0",
     "pytest-homeassistant-custom-component>=0.13.366",
-    "aioresponses>=0.7.7",
+    "aioresponses>=0.7.9",
 ]
 
 [tool.ruff]
