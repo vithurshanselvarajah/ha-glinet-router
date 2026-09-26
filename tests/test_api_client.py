@@ -145,6 +145,37 @@ async def test_get_online_clients_filters_offline_clients() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "online_value",
+    [True, False, "true", "false", "1", "0", 1, 0],
+)
+async def test_get_online_clients_accepts_legacy_and_new_online_payloads(
+    online_value: object,
+) -> None:
+
+    session = FakeSession(
+        [
+            {
+                "result": {
+                    "clients": [
+                        {"mac": "aa:aa:aa:aa:aa:aa", "online": online_value},
+                        {"mac": "bb:bb:bb:bb:bb:bb", "online": online_value},
+                    ]
+                }
+            }
+        ]
+    )
+    client = GLinetApiClient("http://router/rpc", session, sid="sid-1")
+
+    online = await client.clients.get_online()
+
+    truthy = online_value in (True, "true", "1", 1)
+    if truthy:
+        assert set(online) == {"aa:aa:aa:aa:aa:aa", "bb:bb:bb:bb:bb:bb"}
+    else:
+        assert online == {}
+
+
 async def test_repeater_advanced_methods_use_expected_payloads() -> None:
     session = FakeSession(
         [

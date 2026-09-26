@@ -11,6 +11,19 @@ from homeassistant.util import dt as dt_util
 from .utils import get_first_int
 
 
+def _coerce_online(value: Any) -> bool:
+
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
 class RepeaterState(IntEnum):
     INITIALIZING = -1
     NOT_USED = 0
@@ -663,7 +676,7 @@ class ClientDeviceInfo:
                 self._name = self._mac.replace(":", "_")
             self._ip_address = dev_info.get("ip")
             self._last_activity = now
-            self._connected = bool(dev_info.get("online", False))
+            self._connected = bool(_coerce_online(dev_info.get("online")))
             type_index = int(dev_info.get("type", 5))
             interface_types = list(DeviceInterfaceType)
             if 0 <= type_index < len(interface_types):
@@ -674,9 +687,13 @@ class ClientDeviceInfo:
             self._tx_rate = get_first_int(dev_info, ("tx",))
             self._total_rx = get_first_int(dev_info, ("total_rx",))
             self._total_tx = get_first_int(dev_info, ("total_tx",))
-
-        if self._connected:
-            self._connected = (now - self._last_activity).total_seconds() < consider_home
+        else:
+            # No fresh device info from the router this poll cycle. Keep the
+            # current connectivity state but let the consider_home grace
+            # period expire — only used when the device was previously seen
+            # online and the router stops reporting it on a later poll.
+            if self._connected:
+                self._connected = (now - self._last_activity).total_seconds() < consider_home
 
         if not self._connected:
             self._ip_address = None
