@@ -1689,6 +1689,48 @@ async def test_fetch_connected_devices_respects_add_all_devices_option(monkeypat
     assert hub._devices["11:22:33:44:55:66"].is_known is False
 
 
+async def test_online_client_count_reflects_actual_online_devices_with_zero_consider_home(
+    monkeypatch,
+) -> None:
+
+    import custom_components.glinet_router.hub as hub_module
+
+    monkeypatch.setattr(hub_module, "async_dispatcher_send", _noop_arg)
+
+    hub = GLinetHub.__new__(GLinetHub)
+    hub._options = {"consider_home": 0}
+    hub._settings = {CONF_ADD_ALL_DEVICES: True}
+    hub._factory_mac = "00:00:00:00:00:00"
+    hub._devices = {}
+    hub._entry = types.SimpleNamespace(entry_id="test_entry", unique_id="unique_id")
+    hub.hass = MagicMock()
+
+    mock_dr = MagicMock()
+    mock_dr.async_get_device_by_connection.return_value = None
+    import homeassistant.helpers.device_registry as dr
+
+    monkeypatch.setattr(dr, "async_get", lambda _: mock_dr)
+
+    # Three devices from the firmware-4.9 "clients/get_list" example: two
+    # currently online (``online: true``), one offline (``online: false``).
+    hub._api = types.SimpleNamespace(clients=types.SimpleNamespace(get_online=AsyncMock()))
+    hub._invoke_api = AsyncMock(
+        return_value={
+            "00:11:22:33:44:55": {"online": True, "ip": "192.168.30.1", "mac": "00:11:22:33:44:55"},
+            "11:22:33:44:55:66": {"online": True, "ip": "192.168.30.2", "mac": "11:22:33:44:55:66"},
+            "22:33:44:55:66:77": {
+                "online": False,
+                "ip": "192.168.30.3",
+                "mac": "22:33:44:55:66:77",
+            },
+        }
+    )
+
+    await hub.fetch_connected_devices()
+
+    assert hub.online_client_count == 2
+
+
 async def test_async_initialize_hub_cleans_up_unknown_devices(monkeypatch) -> None:
     hub = GLinetHub.__new__(GLinetHub)
     hub._settings = {CONF_ADD_ALL_DEVICES: False}

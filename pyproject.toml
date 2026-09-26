@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "glinet-router"
-version = "1.6.3"
+version = "1.6.4"
 description = "Unified GL.iNet Router Home Assistant integration with bundled API client"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -13,16 +13,16 @@ authors = [
     { name = "Vithurshan Selvarajah" },
 ]
 dependencies = [
-    "homeassistant>=2026.5.0",
+    "homeassistant>=2026.9.3",
     "passlib>=1.7.4",
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "pytest-homeassistant-custom-component>=0.13.0",
-    "aioresponses>=0.7.7",
+    "pytest-asyncio>=1.4.0",
+    "pytest-homeassistant-custom-component>=0.13.366",
+    "aioresponses>=0.7.9",
 ]
 
 [tool.ruff]

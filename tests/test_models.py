@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
+
 from custom_components.glinet_router.models import (
     ClientDeviceInfo,
     DeviceInterfaceType,
@@ -222,6 +226,56 @@ def test_client_device_marks_missing_device_away_when_delay_is_zero() -> None:
     device.apply_update(None, consider_home=0)
 
     assert device.is_connected is False
+
+
+def test_client_device_fresh_online_is_connected_when_delay_is_zero() -> None:
+
+    device = ClientDeviceInfo("aa:bb:cc:dd:ee:ff")
+
+    device.apply_update(
+        {
+            "online": True,
+            "ip": "192.168.8.20",
+            "mac": "aa:bb:cc:dd:ee:ff",
+        },
+        consider_home=0,
+    )
+
+    assert device.is_connected is True
+    assert device.ip_address == "192.168.8.20"
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        (True, True),
+        (False, False),
+        ("true", True),
+        ("false", False),
+        ("1", True),
+        ("0", False),
+        ("yes", True),
+        ("on", True),
+        (1, True),
+        (0, False),
+        (None, False),
+        ("", False),
+        ("maybe", False),
+    ],
+)
+def test_client_device_accepts_legacy_and_new_online_payloads(
+    raw_value: Any, expected: bool
+) -> None:
+
+    device = ClientDeviceInfo("aa:bb:cc:dd:ee:ff")
+
+    device.apply_update({"online": raw_value, "ip": "192.168.8.20"}, consider_home=0)
+
+    assert device.is_connected is expected
+    if expected:
+        assert device.ip_address == "192.168.8.20"
+    else:
+        assert device.ip_address is None
 
 
 def test_fan_status_from_api_response() -> None:
