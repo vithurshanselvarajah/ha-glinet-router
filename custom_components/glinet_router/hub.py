@@ -100,6 +100,7 @@ from .models import (
     WireGuardClient,
     WireGuardServerStatus,
     ZeroTierStatus,
+    _coerce_online,
 )
 from .utils import compute_mac_offset, get_first_int, pick_first
 
@@ -137,6 +138,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
 
         self._devices: dict[str, ClientDeviceInfo] = {}
         self._all_connected_clients: dict[str, dict[str, Any]] = {}
+        self._all_clients_raw: list[dict[str, Any]] = []
         self._wifi_ifaces: dict[str, WifiInterface] = {}
         self._wifi_supported: bool = True
         self._system_status: RouterStatus | None = None
@@ -987,6 +989,12 @@ class GLinetHub(DataUpdateCoordinator[None]):
         connected_devices = await self._invoke_api(self.router_api.clients.get_online)
         if connected_devices is None:
             return
+
+        all_clients_raw = await self._invoke_api(self.router_api.clients.get_list)
+        if isinstance(all_clients_raw, dict):
+            self._all_clients_raw = list(all_clients_raw.get("clients", []))
+        else:
+            self._all_clients_raw = []
 
         self._all_connected_clients = connected_devices
 
@@ -2095,7 +2103,13 @@ class GLinetHub(DataUpdateCoordinator[None]):
 
     @property
     def online_client_count(self) -> int:
-        return sum(1 for device in self._devices.values() if device.is_connected)
+        if self._devices:
+            return sum(1 for device in self._devices.values() if device.is_connected)
+        return sum(
+            1
+            for client in self._all_clients_raw
+            if _coerce_online(client.get("online"))
+        )
 
     @property
     def current_traffic_download(self) -> int:
