@@ -40,8 +40,8 @@ def _make_entity(
 def test_update_entity_exposes_release_notes_and_install_when_download_url_exists() -> None:
     entity = _make_entity(
         {
-            "current_version": "4.0.1",
-            "version_new": "4.0.0",
+            "current_version": "4.0.0",
+            "version_new": "4.0.1",
             "release_note": "### Fixes\n* Better stability",
             "url": "http://example.invalid/fw.bin",
             "id": "fw-1",
@@ -89,3 +89,36 @@ async def test_update_entity_install_calls_hub_upgrade_helper() -> None:
     await entity.async_install("4.0.1", backup=False)
 
     assert hub.calls == [(False, True)]
+
+
+def test_update_entity_reports_new_firmware_when_current_and_target_differ() -> None:
+    hub = FakeHub(
+        {
+            "current_version": "4.9.0",
+            "version_new": "4.10.1",
+            "new_compile_time": "2026-09-18 18:54:58",
+            "current_compile_time": "2026-05-15 18:37:04",
+            "url": "http://example.invalid/fw.bin",
+            "id": "fw-4.10.1",
+        },
+        {},
+        {},
+    )
+    hub.firmware_version = "4.9.0"
+    entity = GLinetFirmwareUpdateEntity(hub)
+
+    assert entity.installed_version == "4.9.0"
+    assert entity.latest_version == "4.10.1"
+
+
+def test_update_entity_falls_back_to_new_version_alias() -> None:
+    entity = _make_entity(
+        {
+            "current_version": "4.9.0",
+            "new_version": "4.10.1",
+            "url": "http://example.invalid/fw.bin",
+            "id": "fw-4.10.1",
+        },
+    )
+
+    assert entity.latest_version == "4.10.1"
