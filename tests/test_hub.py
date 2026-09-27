@@ -30,8 +30,11 @@ def _hub_with_devices() -> GLinetHub:
     hub._devices = {"aa:bb:cc:dd:ee:ff": ClientDeviceInfo("aa:bb:cc:dd:ee:ff")}
     hub._devices["aa:bb:cc:dd:ee:ff"].apply_update({"online": True})
     hub._all_connected_clients = {}
+    hub._all_clients_raw = []
     hub._invoke_api = _invoke_api_empty_clients
-    hub._api = types.SimpleNamespace(clients=types.SimpleNamespace(get_online=object()))
+    hub._api = types.SimpleNamespace(
+        clients=types.SimpleNamespace(get_online=object(), get_list=object())
+    )
     hub._entry = types.SimpleNamespace(entry_id="test_entry", async_on_unload=lambda fn: None)
     hub.hass = object()
     return hub
@@ -1671,6 +1674,7 @@ async def test_fetch_connected_devices_respects_add_all_devices_option(monkeypat
     hub._devices = {}
     hub._entry = types.SimpleNamespace(entry_id="test_entry", unique_id="unique_id")
     hub.hass = MagicMock()
+    hub._all_clients_raw = []
 
     mock_dr = MagicMock()
     mock_dr.async_get_device_by_connection.return_value = None
@@ -1678,7 +1682,9 @@ async def test_fetch_connected_devices_respects_add_all_devices_option(monkeypat
 
     monkeypatch.setattr(dr, "async_get", lambda _: mock_dr)
 
-    hub._api = types.SimpleNamespace(clients=types.SimpleNamespace(get_online=AsyncMock()))
+    hub._api = types.SimpleNamespace(
+        clients=types.SimpleNamespace(get_online=AsyncMock(), get_list=AsyncMock())
+    )
     hub._invoke_api = AsyncMock(
         return_value={"11:22:33:44:55:66": {"online": True, "ip": "1.1.1.1"}}
     )
@@ -1704,6 +1710,7 @@ async def test_online_client_count_reflects_actual_online_devices_with_zero_cons
     hub._devices = {}
     hub._entry = types.SimpleNamespace(entry_id="test_entry", unique_id="unique_id")
     hub.hass = MagicMock()
+    hub._all_clients_raw = []
 
     mock_dr = MagicMock()
     mock_dr.async_get_device_by_connection.return_value = None
@@ -1713,22 +1720,165 @@ async def test_online_client_count_reflects_actual_online_devices_with_zero_cons
 
     # Three devices from the firmware-4.9 "clients/get_list" example: two
     # currently online (``online: true``), one offline (``online: false``).
-    hub._api = types.SimpleNamespace(clients=types.SimpleNamespace(get_online=AsyncMock()))
+    hub._api = types.SimpleNamespace(
+        clients=types.SimpleNamespace(get_online=AsyncMock(), get_list=AsyncMock())
+    )
+    online_payload = {
+        "00:11:22:33:44:55": {"online": True, "ip": "192.168.30.1", "mac": "00:11:22:33:44:55"},
+        "11:22:33:44:55:66": {"online": True, "ip": "192.168.30.2", "mac": "11:22:33:44:55:66"},
+        "22:33:44:55:66:77": {
+            "online": False,
+            "ip": "192.168.30.3",
+            "mac": "22:33:44:55:66:77",
+        },
+    }
     hub._invoke_api = AsyncMock(
-        return_value={
-            "00:11:22:33:44:55": {"online": True, "ip": "192.168.30.1", "mac": "00:11:22:33:44:55"},
-            "11:22:33:44:55:66": {"online": True, "ip": "192.168.30.2", "mac": "11:22:33:44:55:66"},
-            "22:33:44:55:66:77": {
-                "online": False,
-                "ip": "192.168.30.3",
-                "mac": "22:33:44:55:66:77",
-            },
-        }
+        side_effect=[
+            online_payload,
+            {"clients": [
+                {"mac": "00:11:22:33:44:55", "online": True},
+                {"mac": "11:22:33:44:55:66", "online": True},
+                {"mac": "22:33:44:55:66:77", "online": False},
+            ]},
+        ]
     )
 
     await hub.fetch_connected_devices()
 
     assert hub.online_client_count == 2
+
+
+async def test_online_client_count_uses_raw_router_payload_when_discovery_disabled(
+    monkeypatch,
+) -> None:
+    import custom_components.glinet_router.hub as hub_module
+
+    monkeypatch.setattr(hub_module, "async_dispatcher_send", _noop_arg)
+
+    hub = GLinetHub.__new__(GLinetHub)
+    hub._options = {"consider_home": 0}
+    hub._settings = {CONF_ADD_ALL_DEVICES: False}
+    hub._factory_mac = "00:00:00:00:00:00"
+    hub._devices = {}
+    hub._entry = types.SimpleNamespace(entry_id="test_entry", unique_id="unique_id")
+    hub.hass = MagicMock()
+    hub._all_clients_raw = []
+
+    mock_dr = MagicMock()
+    mock_dr.async_get_device_by_connection.return_value = None
+    import homeassistant.helpers.device_registry as dr
+
+    monkeypatch.setattr(dr, "async_get", lambda _: mock_dr)
+
+    hub._api = types.SimpleNamespace(
+        clients=types.SimpleNamespace(get_online=AsyncMock(), get_list=AsyncMock())
+    )
+    hub._invoke_api = AsyncMock(
+        side_effect=[
+            {
+                "00:11:22:33:44:55": {"online": True, "mac": "00:11:22:33:44:55"},
+                "11:22:33:44:55:66": {"online": True, "mac": "11:22:33:44:55:66"},
+                "aa:bb:cc:dd:ee:ff": {"online": True, "mac": "aa:bb:cc:dd:ee:ff"},
+            },
+            {"clients": [
+                {"mac": "00:11:22:33:44:55", "online": True},
+                {"mac": "11:22:33:44:55:66", "online": True},
+                {"mac": "aa:bb:cc:dd:ee:ff", "online": True},
+                {"mac": "de:ad:be:ef:00:01", "online": False},
+                {"mac": "de:ad:be:ef:00:02", "online": False},
+            ]},
+        ]
+    )
+
+    await hub.fetch_connected_devices()
+
+    assert hub._devices == {}
+    assert hub.online_client_count == 3
+    assert len(hub._all_clients_raw) == 5
+
+
+async def test_online_client_count_handles_string_online_field(monkeypatch) -> None:
+    import custom_components.glinet_router.hub as hub_module
+
+    monkeypatch.setattr(hub_module, "async_dispatcher_send", _noop_arg)
+
+    hub = GLinetHub.__new__(GLinetHub)
+    hub._options = {"consider_home": 0}
+    hub._settings = {CONF_ADD_ALL_DEVICES: False}
+    hub._factory_mac = "00:00:00:00:00:00"
+    hub._devices = {}
+    hub._entry = types.SimpleNamespace(entry_id="test_entry", unique_id="unique_id")
+    hub.hass = MagicMock()
+    hub._all_clients_raw = []
+
+    mock_dr = MagicMock()
+    mock_dr.async_get_device_by_connection.return_value = None
+    import homeassistant.helpers.device_registry as dr
+
+    monkeypatch.setattr(dr, "async_get", lambda _: mock_dr)
+
+    hub._api = types.SimpleNamespace(
+        clients=types.SimpleNamespace(get_online=AsyncMock(), get_list=AsyncMock())
+    )
+    hub._invoke_api = AsyncMock(
+        side_effect=[
+            {"aa:bb:cc:dd:ee:ff": {"online": "true", "mac": "aa:bb:cc:dd:ee:ff"}},
+            {"clients": [
+                {"mac": "aa:bb:cc:dd:ee:ff", "online": "true"},
+                {"mac": "11:22:33:44:55:66", "online": "false"},
+            ]},
+        ]
+    )
+
+    await hub.fetch_connected_devices()
+
+    assert hub.online_client_count == 1
+
+
+async def test_online_client_count_uses_raw_total_even_with_stale_tracked_devices(
+    monkeypatch,
+) -> None:
+    import custom_components.glinet_router.hub as hub_module
+
+    monkeypatch.setattr(hub_module, "async_dispatcher_send", _noop_arg)
+
+    hub = GLinetHub.__new__(GLinetHub)
+    hub._options = {"consider_home": 0}
+    hub._settings = {CONF_ADD_ALL_DEVICES: False}
+    hub._factory_mac = "00:00:00:00:00:00"
+    hub._entry = types.SimpleNamespace(entry_id="test_entry", unique_id="unique_id")
+    hub.hass = MagicMock()
+    hub._all_clients_raw = []
+
+    mock_dr = MagicMock()
+    mock_dr.async_get_device_by_connection.return_value = None
+    import homeassistant.helpers.device_registry as dr
+
+    monkeypatch.setattr(dr, "async_get", lambda _: mock_dr)
+
+    hub._api = types.SimpleNamespace(
+        clients=types.SimpleNamespace(get_online=AsyncMock(), get_list=AsyncMock())
+    )
+
+    stale_device = ClientDeviceInfo("aa:bb:cc:dd:ee:ff")
+    stale_device.apply_update(None, consider_home=0)
+    hub._devices = {"aa:bb:cc:dd:ee:ff": stale_device}
+
+    online_payload = {
+        f"11:22:33:44:55:{i:02X}": {"online": True, "mac": f"11:22:33:44:55:{i:02X}"}
+        for i in range(1, 8)
+    }
+    raw_payload = {
+        "clients": [
+            {"mac": mac, "online": True} for mac in online_payload.keys()
+        ]
+        + [{"mac": "aa:bb:cc:dd:ee:ff", "online": False}]
+    }
+    hub._invoke_api = AsyncMock(side_effect=[online_payload, raw_payload])
+
+    await hub.fetch_connected_devices()
+
+    assert hub.online_client_count == 7
 
 
 async def test_async_initialize_hub_cleans_up_unknown_devices(monkeypatch) -> None:

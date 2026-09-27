@@ -61,7 +61,7 @@ class GLinetFirmwareUpdateEntity(CoordinatorEntity[GLinetHub], UpdateEntity):
     @property
     def latest_version(self) -> str | None:
         info = self._hub.upgrade_info
-        latest = info.get("current_version")
+        latest = info.get("version_new") or info.get("new_version")
         if latest:
             return str(latest)
         return self.installed_version
