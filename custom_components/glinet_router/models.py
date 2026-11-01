@@ -24,6 +24,20 @@ def _coerce_online(value: Any) -> bool:
     return False
 
 
+def is_wg_peer_online(peer: dict[str, Any], now: float | None = None) -> bool:
+    # Older firmware reports a per-peer `status`. Newer firmware (observed on 4.11.0)
+    # omits it and only reports `latest_handshake` as unix seconds.
+
+    status = peer.get("status")
+    if status is not None:
+        return _coerce_online(status)
+    handshake = get_first_int(peer, ("latest_handshake",))
+    if handshake is None or handshake <= 0:
+        return False
+    current = now if now is not None else dt_util.utcnow().timestamp()
+    return current - handshake < 180  # WireGuard peers re-handshake roughly every 120 s
+
+
 class RepeaterState(IntEnum):
     INITIALIZING = -1
     NOT_USED = 0
@@ -227,7 +241,7 @@ class WireGuardServerStatus:
     def from_api_response(cls, data: dict) -> WireGuardServerStatus:
         server = data.get("server") or {}
         peers = data.get("peers") or []
-        connected_count = sum(1 for p in peers if p.get("status") == 1)
+        connected_count = sum(is_wg_peer_online(p) for p in peers)
         return cls(
             enabled=server.get("status") == 1,
             initialization=server.get("initialization", False),

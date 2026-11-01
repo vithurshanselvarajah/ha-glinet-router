@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import types
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -1944,6 +1944,50 @@ async def test_fetch_wg_server_status(monkeypatch) -> None:
     await hub.fetch_wg_server_status()
 
     assert hub.wg_server_status.enabled is True
+    assert hub.wg_server_connected_users == 1
+
+
+async def test_fetch_wg_server_status_counts_peers_without_status_by_handshake(
+    monkeypatch,
+) -> None:
+    import custom_components.glinet_router.models as models_module
+
+    now = datetime(2026, 10, 26, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(models_module.dt_util, "utcnow", lambda: now)
+    hub = GLinetHub.__new__(GLinetHub)
+    hub._settings = {}
+
+    class WgServerModule:
+        async def get_status(self) -> dict[str, Any]:
+            # Newer firmware (observed on 4.11.0) omits the per-peer "status" field.
+            return {
+                "peers": [
+                    {
+                        "name": "peer1",
+                        "latest_handshake": int(now.timestamp()) - 30,
+                        "rx_bytes": 578756,
+                        "tx_bytes": 6131884,
+                        "public_ip": "203.0.113.10",
+                        "private_ip": "10.1.0.2/32",
+                    }
+                ],
+                "server": {
+                    "status": 1,
+                    "initialization": True,
+                    "tunnel_ip": "10.1.0.1/24",
+                    "rx_bytes": 578756,
+                    "tx_bytes": 6131884,
+                    "log": "",
+                },
+            }
+
+    hub._api = types.SimpleNamespace(wg_server=WgServerModule())
+    hub._invoke_api = lambda api_callable: api_callable()
+
+    await hub.fetch_wg_server_status()
+
+    assert hub.wg_server_status.enabled is True
+    assert hub.wg_server_status.connected_peers == 1
     assert hub.wg_server_connected_users == 1
 
 

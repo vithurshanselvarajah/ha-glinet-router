@@ -101,6 +101,7 @@ from .models import (
     WireGuardServerStatus,
     ZeroTierStatus,
     _coerce_online,
+    is_wg_peer_online,
 )
 from .utils import compute_mac_offset, get_first_int, pick_first
 
@@ -2041,7 +2042,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
     def wg_server_connected_users(self) -> int:
         if not self._wg_server_peers:
             return 0
-        return sum(1 for p in self._wg_server_peers if p.get("status") == 1)
+        return sum(is_wg_peer_online(p) for p in self._wg_server_peers)
 
     @property
     def ovpn_clients(self) -> dict[str, OpenVpnClient]:
