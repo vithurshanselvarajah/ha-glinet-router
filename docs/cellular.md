@@ -10,7 +10,9 @@ To enable this feature, check the **Cellular** option under **Enabled Features**
 - **Firmware support**:
   - **Firmware 4.8.x** uses the aggregate modem API (`modem/get_status` and
     `modem/get_info`). The APN, signal metrics, and the cellular WAN IP
-    all come from that single response.
+    all come from that single response. The legacy **overall signal
+    strength**, **RSSI** and **network** sensors are still registered on
+    4.8 because the firmware still reports the underlying values.
   - **Firmware 4.9+** uses the newer per-slot modem API. Several changes:
     - The 4.9 firmware dropped the legacy **overall signal strength**
       and **RSSI** readings — the corresponding Home Assistant sensors
@@ -48,8 +50,11 @@ To enable this feature, check the **Cellular** option under **Enabled Features**
 | **Cellular RSRP** | Reference Signal Received Power in dBm. | `modem.get_status` → `modems[].simcard.signal.rsrp` | `modem.get_status` → `modems[].simcard.signal.rsrp`. |
 | **Cellular RSRQ** | Reference Signal Received Quality in dB. | `modem.get_status` → `modems[].simcard.signal.rsrq` | `modem.get_status` → `modems[].simcard.signal.rsrq`. |
 | **Cellular SINR** | Signal-to-Interference-plus-Noise Ratio in dB. | `modem.get_status` → `modems[].simcard.signal.sinr` | `modem.get_status` → `modems[].simcard.signal.sinr`. |
+| **Cellular signal** | Overall signal strength in dBm. **Firmware 4.8 only.** | `modem.get_status` → `modems[].simcard.signal.rssi` | Not registered — the 4.9 firmware no longer reports it. |
+| **Cellular RSSI** | Received Signal Strength Indicator in dBm. **Firmware 4.8 only.** | `modem.get_status` → `modems[].simcard.signal.rssi` | Not registered — the 4.9 firmware no longer reports it. |
+| **Cellular network** | Network operator / service type. **Firmware 4.8 only.** | `modem.get_status` → `modems[].simcard.carrier` | Not registered — it duplicated `Cellular band`. |
 
-> **Removed sensors**: `Cellular signal`, `Cellular RSSI`, and `Cellular network` are no longer registered. The 4.9 firmware no longer surfaces the underlying values for the first two, and `Cellular network` duplicated `Cellular band`. The `Cellular band` sensor above is the canonical replacement.
+> **Firmware 4.9+ only**: `Cellular signal`, `Cellular RSSI`, and `Cellular network` are no longer registered. The 4.9 firmware no longer surfaces the underlying values for the first two, and `Cellular network` duplicated `Cellular band`. The `Cellular band` sensor above is the canonical replacement. On firmware 4.8 these three sensors remain available, because that firmware still reports the values they read.
 
 ### Per-SIM Traffic & Data Limit Sensors
 
@@ -116,7 +121,7 @@ If the bodyless call returns no entries for a target, the integration falls back
 
 When upgrading from firmware 4.8 to 4.9, the following entity-registry changes happen automatically on the next Home Assistant reload:
 
-- **`Cellular signal`**, **`Cellular RSSI`**, **`Cellular network`** — removed from the entity registry. These sensors are no longer registered, and any existing entities from a prior 4.8 install are cleaned up by the hub's `async_initialize_hub` pass.
+- **`Cellular signal`**, **`Cellular RSSI`**, **`Cellular network`** — removed from the entity registry on firmware 4.9+. These sensors are no longer registered there, and any existing entities from a prior 4.8 install are cleaned up by the hub's `async_initialize_hub` pass. On firmware 4.8 they stay registered and keep working, because that firmware still reports the underlying values.
 - **`Cellular status`** — the unique_id is unchanged (`glinet_sensor/<device_mac>/wan_status_modem_0001`), so the existing entity keeps its history. On 4.9+ the sensor now resolves to the active per-slot interface and reports the real Up/Down state.
 - **`Cellular WAN IPv4` / `Cellular WAN IPv6`** — the unique_ids are unchanged, and the IP values are now sourced from the bodyless `modem/get_network_info` call.
 - **`Cellular APN`** — the unique_id is unchanged, and the APN is now sourced from `modem/get_sim_config` on 4.9+.

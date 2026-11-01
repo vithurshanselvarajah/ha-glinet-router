@@ -22,6 +22,7 @@ from ..const import (
     FEATURE_REPEATER,
     FEATURE_SMS,
     FEATURE_WG_SERVER,
+    LEGACY_CELLULAR_SENSOR_KEYS,
     WAN_INTERFACE_NAMES,
 )
 from ..hub import GLinetHub
@@ -399,6 +400,46 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
         ),
     ),
     HubSensorEntityDescription(
+        key="cellular_signal",
+        name="Cellular signal",
+        has_entity_name=True,
+        icon="mdi:signal-cellular-2",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement="dBm",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda hub: get_first_int(
+            hub.cellular_status,
+            ("signal", "signal_strength", "rssi", "rsrp", "csq"),
+            nested=("modem", "cellular", "sim", "signal"),
+        ),
+    ),
+    HubSensorEntityDescription(
+        key="cellular_rssi",
+        name="Cellular RSSI",
+        has_entity_name=True,
+        icon="mdi:signal-cellular-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement="dBm",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda hub: get_first_int(
+            hub.cellular_status,
+            ("rssi",),
+            nested=("modem", "cellular", "sim", "signal"),
+        ),
+    ),
+    HubSensorEntityDescription(
+        key="cellular_network",
+        name="Cellular network",
+        has_entity_name=True,
+        icon="mdi:signal-cellular-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda hub: get_first_value(
+            hub.cellular_status,
+            ("network", "operator", "operator_name", "carrier", "mode", "service_type"),
+            nested=("modem", "cellular", "sim"),
+        ),
+    ),
+    HubSensorEntityDescription(
         key="cellular_rsrp",
         name="Cellular RSRP",
         has_entity_name=True,
@@ -604,6 +645,9 @@ HUB_SENSORS: tuple[HubSensorEntityDescription, ...] = (
 
 
 FEATURE_SENSOR_MAP: dict[str, str] = {
+    "cellular_signal": FEATURE_CELLULAR,
+    "cellular_rssi": FEATURE_CELLULAR,
+    "cellular_network": FEATURE_CELLULAR,
     "cellular_rsrp": FEATURE_CELLULAR,
     "cellular_rsrq": FEATURE_CELLULAR,
     "cellular_sinr": FEATURE_CELLULAR,
@@ -841,6 +885,17 @@ def _sensor_is_enabled(hub: GLinetHub, description: HubSensorEntityDescription) 
         if monitors is None:
             return any(iface.get("interface") == "modem_0001" for iface in _wan_interfaces(hub))
         return f"modem_0001:{protocol}" in monitors
+
+    if description.key in LEGACY_CELLULAR_SENSOR_KEYS:
+        # The legacy overall-signal sensors were dropped in v1.6.1 because
+        # firmware 4.9 no longer reports the underlying values. Firmware 4.8
+        # still does, so keep exposing them there. Without this gate the
+        # sensors would be registered on every firmware version while the
+        # registry cleanup (firmware 4.9+ only) would leave stale entries
+        # behind on 4.8, showing them as "unavailable" in Home Assistant.
+        if not hub.feature_enabled(FEATURE_CELLULAR):
+            return False
+        return not getattr(hub, "is_firmware_4_9_or_above", False)
 
     feature = FEATURE_SENSOR_MAP.get(description.key)
     return feature is None or hub.feature_enabled(feature)

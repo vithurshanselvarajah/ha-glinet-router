@@ -71,6 +71,7 @@ from .const import (
     FEATURE_WG_CLIENT,
     FEATURE_WG_SERVER,
     FEATURE_ZEROTIER,
+    LEGACY_CELLULAR_SENSOR_KEYS,
 )
 from .hub_helpers import (
     _FIRMWARE_INFO_ALIASES,
@@ -270,7 +271,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         if not unique_id.startswith(prefix):
             return False
         suffix = unique_id.removeprefix(prefix)
-        return suffix in {"cellular_signal", "cellular_rssi", "cellular_network"}
+        return suffix in LEGACY_CELLULAR_SENSOR_KEYS
 
     async def async_initialize_hub(self) -> None:
         if not self._late_init_complete:

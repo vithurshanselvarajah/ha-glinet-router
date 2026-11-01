@@ -63,6 +63,12 @@ FEATURE_OPTIONS = [
     FEATURE_PLAYGROUND,
 ]
 
+# Legacy cellular sensors that were dropped in v1.6.1. Firmware 4.9 stopped
+# reporting the underlying values, but firmware 4.8 still provides them, so
+# these sensors stay registered on 4.8 only. Keeping the list in one place
+# makes the registration gate and the entity-registry cleanup agree.
+LEGACY_CELLULAR_SENSOR_KEYS = frozenset({"cellular_signal", "cellular_rssi", "cellular_network"})
+
 
 SERVICE_GET_SMS = "get_sms"
 SERVICE_REMOVE_SMS = "remove_sms"

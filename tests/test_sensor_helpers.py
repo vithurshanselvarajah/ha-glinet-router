@@ -288,13 +288,12 @@ def test_get_cellular_ip_resolves_correctly() -> None:
     assert _get_cellular_ip(hub, "ipv6") == "2001:db8::42"
 
 
-def test_legacy_cellular_sensors_no_longer_registered() -> None:
+async def test_legacy_cellular_sensors_registered_only_on_firmware_4_8() -> None:
     from custom_components.glinet_router.entities.sensor import HUB_SENSORS
 
     keys = {d.key for d in HUB_SENSORS}
-    assert "cellular_signal" not in keys
-    assert "cellular_rssi" not in keys
-    assert "cellular_network" not in keys
+    for legacy in ("cellular_signal", "cellular_rssi", "cellular_network"):
+        assert legacy in keys
     for expected in (
         "cellular_band",
         "cellular_rsrp",
@@ -303,6 +302,79 @@ def test_legacy_cellular_sensors_no_longer_registered() -> None:
         "cellular_apn",
     ):
         assert expected in keys
+
+
+async def test_legacy_cellular_sensors_enabled_only_on_firmware_4_8() -> None:
+    from custom_components.glinet_router.entities.sensor import HUB_SENSORS, _sensor_is_enabled
+
+    legacy_descriptions = [
+        next(d for d in HUB_SENSORS if d.key == key)
+        for key in ("cellular_signal", "cellular_rssi", "cellular_network")
+    ]
+
+    hub_48 = types.SimpleNamespace(
+        wan_status_monitors=None,
+        kmwan_status={"interfaces": []},
+        is_firmware_4_9_or_above=False,
+        feature_enabled=lambda feature: True,
+    )
+    for description in legacy_descriptions:
+        assert _sensor_is_enabled(hub_48, description) is True
+
+    hub_49 = types.SimpleNamespace(
+        wan_status_monitors=None,
+        kmwan_status={"interfaces": []},
+        is_firmware_4_9_or_above=True,
+        feature_enabled=lambda feature: True,
+    )
+    for description in legacy_descriptions:
+        assert _sensor_is_enabled(hub_49, description) is False
+
+    hub_48_feature_off = types.SimpleNamespace(
+        wan_status_monitors=None,
+        kmwan_status={"interfaces": []},
+        is_firmware_4_9_or_above=False,
+        feature_enabled=lambda feature: False,
+    )
+    for description in legacy_descriptions:
+        assert _sensor_is_enabled(hub_48_feature_off, description) is False
+
+
+async def test_legacy_cellular_sensors_resolve_values_from_firmware_4_8_payload() -> None:
+    from custom_components.glinet_router.entities.sensor import HUB_SENSORS
+
+    legacy_keys = {"cellular_signal", "cellular_rssi", "cellular_network"}
+    descriptions = {d.key: d for d in HUB_SENSORS if d.key in legacy_keys}
+
+    hub = types.SimpleNamespace(
+        cellular_status={
+            "modems": [
+                {
+                    "bus": "0001:01:00.0",
+                    "slot": "1",
+                    "signal": 4,
+                    "network_type": "LTE",
+                    "simcard": {
+                        "apn": "internet",
+                        "carrier": "Vodafone",
+                        "band": "LTE Band 4",
+                        "signal": {
+                            "rssi": -71,
+                            "rsrp": -100,
+                            "rsrq": -8,
+                            "sinr": 17,
+                            "strength": 4,
+                            "network_type": "LTE",
+                        },
+                    },
+                }
+            ]
+        }
+    )
+
+    assert descriptions["cellular_signal"].value_fn(hub) == -71
+    assert descriptions["cellular_rssi"].value_fn(hub) == -71
+    assert descriptions["cellular_network"].value_fn(hub) == "Vodafone"
 
 
 def test_cellular_rsrp_remains_enabled_on_firmware_4_9() -> None:
