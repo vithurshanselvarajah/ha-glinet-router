@@ -71,6 +71,7 @@ from .const import (
     FEATURE_WG_CLIENT,
     FEATURE_WG_SERVER,
     FEATURE_ZEROTIER,
+    LEGACY_CELLULAR_SENSOR_KEYS,
 )
 from .hub_helpers import (
     _FIRMWARE_INFO_ALIASES,
@@ -101,6 +102,7 @@ from .models import (
     WireGuardServerStatus,
     ZeroTierStatus,
     _coerce_online,
+    is_wg_peer_online,
 )
 from .utils import compute_mac_offset, get_first_int, pick_first
 
@@ -269,7 +271,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
         if not unique_id.startswith(prefix):
             return False
         suffix = unique_id.removeprefix(prefix)
-        return suffix in {"cellular_signal", "cellular_rssi", "cellular_network"}
+        return suffix in LEGACY_CELLULAR_SENSOR_KEYS
 
     async def async_initialize_hub(self) -> None:
         if not self._late_init_complete:
@@ -2041,7 +2043,7 @@ class GLinetHub(DataUpdateCoordinator[None]):
     def wg_server_connected_users(self) -> int:
         if not self._wg_server_peers:
             return 0
-        return sum(1 for p in self._wg_server_peers if p.get("status") == 1)
+        return sum(is_wg_peer_online(p) for p in self._wg_server_peers)
 
     @property
     def ovpn_clients(self) -> dict[str, OpenVpnClient]:

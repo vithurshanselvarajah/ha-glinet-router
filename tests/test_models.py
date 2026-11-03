@@ -14,6 +14,7 @@ from custom_components.glinet_router.models import (
     SmsDirection,
     SmsMessage,
     SmsStatus,
+    is_wg_peer_online,
 )
 
 
@@ -276,6 +277,30 @@ def test_client_device_accepts_legacy_and_new_online_payloads(
         assert device.ip_address == "192.168.8.20"
     else:
         assert device.ip_address is None
+
+
+@pytest.mark.parametrize(
+    ("peer", "expected"),
+    [
+        ({"status": 1}, True),
+        ({"status": 0}, False),
+        ({"status": True}, True),
+        ({"status": "1"}, True),
+        ({"latest_handshake": 1_793_024_570}, True),  # 30 s ago
+        ({"latest_handshake": "1793024570"}, True),
+        ({"latest_handshake": 1_793_024_000}, False),  # 10 min ago
+        ({"latest_handshake": 0}, False),
+        ({"latest_handshake": None}, False),
+        ({}, False),
+        ({"latest_handshake": "garbage"}, False),
+        ({"latest_handshake": "24 seconds ago"}, False),
+        ({"status": 0, "latest_handshake": 1_793_024_590}, False),
+    ],
+)
+def test_is_wg_peer_online_handles_status_and_handshake_payloads(
+    peer: dict[str, Any], expected: bool
+) -> None:
+    assert is_wg_peer_online(peer, now=1_793_024_600) is expected
 
 
 def test_fan_status_from_api_response() -> None:
