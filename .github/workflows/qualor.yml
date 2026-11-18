@@ -1,0 +1,37 @@
+name: qualor
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['**']
+permissions:
+  contents: read
+jobs:
+  qualor:
+    # Pull requests from forks get no secrets, so they are skipped.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .qualor/trivy
+          key: qualor-trivy-db-${{ github.run_id }}
+          restore-keys: qualor-trivy-db-
+      - name: Make the vulnerability database cache writable
+        run: mkdir -p .qualor/trivy && chmod 0777 .qualor/trivy
+      # Install dependencies (JS/TS, Go) or build (Java) here, before the scan.
+      - uses: qualor-dev/scan-action@v0.15
+        with:
+          server-url: https://qualor.vithuselservices.co.uk
+          project-key: vithurshanselvarajah/ha-glinet-router
+          token: ${{ secrets.QUALOR_TOKEN }}
+      - if: always() && hashFiles('.qualor/trivy/server.json') != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .qualor/trivy
+          key: qualor-trivy-db-${{ hashFiles('.qualor/trivy/server.json') }}
